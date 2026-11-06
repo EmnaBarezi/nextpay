@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NextPay - Log in</title>
+</head>
+<body>
+    <!-- this is my login page, same idea as the register page, colors come later -->
+    <h1>Log in to NextPay</h1>
+
+    <!-- the form sends the email and password to /login when the user clicks the button -->
+    <form method="post" action="/login">
+
+        <label for="email">Email</label><br>
+        <input type="email" id="email" name="email" required><br><br>
+
+        <label for="password">Password</label><br>
+        <input type="password" id="password" name="password" required><br><br>
+
+        <button type="submit">Log in</button>
+    </form>
+
+    <p>No account yet? <a href="/register">Create one here</a></p>
+</body>
+</html>
