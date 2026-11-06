@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NextPay - Create account</title>
+</head>
+<body>
+    <!-- this is my register page, I will add colors later, first I want it to work -->
+    <h1>Create your NextPay account</h1>
+
+    <!-- the form sends what the user types to /register when they click the button -->
+    <form method="post" action="/register">
+
+        <label for="full_name">Full name</label><br>
+        <input type="text" id="full_name" name="full_name" required><br><br>
+
+        <label for="email">Email</label><br>
+        <input type="email" id="email" name="email" required><br><br>
+
+        <label for="password">Password (8 or more characters)</label><br>
+        <input type="password" id="password" name="password" minlength="8" required><br><br>
+
+        <!-- the role decides if the user is a GroupAdmin or a GroupMember -->
+        <label for="role">I am a</label><br>
+        <select id="role" name="role">
+            <option value="member">Member (I pay into a group)</option>
+            <option value="admin">Admin (I run a group)</option>
+        </select><br><br>
+
+        <button type="submit">Create account</button>
+    </form>
+</body>
+</html>

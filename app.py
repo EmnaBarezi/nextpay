@@ -1,8 +1,8 @@
 # NextPay - app for tontine groups in Burundi
-# Step 17: I added the database, so now the app can save users
+# Step 18: I added the register page so users can see the form
 
 import sqlite3
-from flask import Flask
+from flask import Flask, render_template
 
 # this creates my app, everything else will be added to it later
 app = Flask(__name__)
@@ -32,6 +32,13 @@ def init_db():
 @app.get("/")
 def home():
     return "NextPay is running"
+
+
+# new: this shows the register page from the templates folder
+# right now the form only shows up, saving the user comes in the next step
+@app.get("/register")
+def register_page():
+    return render_template("register.html")
 
 
 # I call init_db() here so the table is ready every time the app starts
