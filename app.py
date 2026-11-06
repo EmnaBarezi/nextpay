@@ -1,9 +1,9 @@
 # NextPay - app for tontine groups in Burundi
-# Step 19: the register form now saves the user in the database
+# Step 20: the login form now checks the email and password
 
 import sqlite3
 from flask import Flask, render_template, request
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # this creates my app, everything else will be added to it later
 app = Flask(__name__)
@@ -41,7 +41,7 @@ def register_page():
     return render_template("register.html")
 
 
-# new: this runs when the user clicks "Create account"
+# this runs when the user clicks "Create account"
 @app.post("/register")
 def register():
     # I take what the user typed in the form
@@ -69,6 +69,34 @@ def register():
         conn.close()
 
     return "Account created. Welcome to NextPay, " + full_name + "."
+
+
+# new: this shows the login page from the templates folder
+@app.get("/login")
+def login_page():
+    return render_template("login.html")
+
+
+# new: this runs when the user clicks "Log in"
+@app.post("/login")
+def login():
+    # I take what the user typed in the form
+    email = request.form["email"].strip().lower()
+    password = request.form["password"]
+
+    # I look for a user with this email in the database
+    conn = sqlite3.connect(DB_NAME)
+    user = conn.execute(
+        "SELECT full_name, password_hash FROM users WHERE email = ?", (email,)
+    ).fetchone()
+    conn.close()
+
+    # check_password_hash compares what the user typed with the saved hash
+    # I use the same message for both mistakes, so nobody can guess which emails exist
+    if user is None or not check_password_hash(user[1], password):
+        return "Email or password is wrong. Please try again."
+
+    return "Welcome back, " + user[0] + "."
 
 
 # I call init_db() here so the table is ready every time the app starts
