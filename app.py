@@ -1,12 +1,23 @@
 # NextPay - app for tontine groups in Burundi
-# Step 20: the login form now checks the email and password
+# Step 21: the app now remembers who is logged in (session)
 
+import os
+import secrets
 import sqlite3
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, session, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # this creates my app, everything else will be added to it later
 app = Flask(__name__)
+
+# new: the session needs a secret key so nobody can fake a login
+# I save it in a file called .secret_key, which is in my .gitignore so it never goes to GitHub
+# if the file does not exist yet, I make a new random key
+if not os.path.exists(".secret_key"):
+    with open(".secret_key", "w") as f:
+        f.write(secrets.token_hex(32))
+with open(".secret_key") as f:
+    app.secret_key = f.read()
 
 # the name of the file where all my data will be saved
 DB_NAME = "nextpay.db"
@@ -71,32 +82,55 @@ def register():
     return "Account created. Welcome to NextPay, " + full_name + "."
 
 
-# new: this shows the login page from the templates folder
+# this shows the login page from the templates folder
 @app.get("/login")
 def login_page():
     return render_template("login.html")
 
 
-# new: this runs when the user clicks "Log in"
+# this runs when the user clicks "Log in"
 @app.post("/login")
 def login():
     # I take what the user typed in the form
     email = request.form["email"].strip().lower()
     password = request.form["password"]
 
-    # I look for a user with this email in the database
+    # new: I now also take the user_id and the role from the database
     conn = sqlite3.connect(DB_NAME)
     user = conn.execute(
-        "SELECT full_name, password_hash FROM users WHERE email = ?", (email,)
+        "SELECT user_id, full_name, password_hash, role FROM users WHERE email = ?",
+        (email,),
     ).fetchone()
     conn.close()
 
     # check_password_hash compares what the user typed with the saved hash
     # I use the same message for both mistakes, so nobody can guess which emails exist
-    if user is None or not check_password_hash(user[1], password):
+    if user is None or not check_password_hash(user[2], password):
         return "Email or password is wrong. Please try again."
 
-    return "Welcome back, " + user[0] + "."
+    # new: I save who the user is in the session, so the app remembers them
+    session["user_id"] = user[0]
+    session["name"] = user[1]
+    session["role"] = user[3]
+
+    # new: after login I send the user to their dashboard
+    return redirect("/dashboard")
+
+
+# new: the dashboard is the page users see after they log in
+@app.get("/dashboard")
+def dashboard():
+    # if nobody is logged in, I send them back to the login page
+    if "user_id" not in session:
+        return redirect("/login")
+    return "Hello, " + session["name"] + ". You are logged in as " + session["role"] + ". <a href='/logout'>Log out</a>"
+
+
+# new: logout clears the session, so the app forgets the user
+@app.get("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
 
 
 # I call init_db() here so the table is ready every time the app starts
