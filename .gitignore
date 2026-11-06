@@ -1,0 +1,7 @@
+# I don't want to upload my virtual environment, it is too big
+venv/
+__pycache__/
+
+# this is where my users' data will be saved, it should stay on my laptop
+nextpay.db
+.secret_key
