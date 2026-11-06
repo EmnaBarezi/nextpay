@@ -1,17 +1,41 @@
 # NextPay - app for tontine groups in Burundi
-# I am starting small, I only want to see that Flask runs on my laptop first
+# Step 17: I added the database, so now the app can save users
 
+import sqlite3
 from flask import Flask
 
 # this creates my app, everything else will be added to it later
 app = Flask(__name__)
 
+# the name of the file where all my data will be saved
+DB_NAME = "nextpay.db"
 
-# this is a test page, I just want to see a message in my browser
+
+# this function creates the users table if it does not exist yet
+# the columns come from the User class in my class diagram
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+# this is my test page, I will remove it later
 @app.get("/")
 def home():
     return "NextPay is running"
 
+
+# I call init_db() here so the table is ready every time the app starts
+init_db()
 
 # debug=True so the page reloads by itself when I change my code
 if __name__ == "__main__":
