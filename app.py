@@ -1,5 +1,5 @@
 # NextPay - app for tontine groups in Burundi
-# Step 21: the app now remembers who is logged in (session)
+# Step 22: I added the table for the tontine groups
 
 import os
 import secrets
@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # this creates my app, everything else will be added to it later
 app = Flask(__name__)
 
-# new: the session needs a secret key so nobody can fake a login
+# the session needs a secret key so nobody can fake a login
 # I save it in a file called .secret_key, which is in my .gitignore so it never goes to GitHub
 # if the file does not exist yet, I make a new random key
 if not os.path.exists(".secret_key"):
@@ -23,10 +23,11 @@ with open(".secret_key") as f:
 DB_NAME = "nextpay.db"
 
 
-# this function creates the users table if it does not exist yet
-# the columns come from the User class in my class diagram
+# this function creates my tables if they do not exist yet
 def init_db():
     conn = sqlite3.connect(DB_NAME)
+
+    # the users table, the columns come from the User class in my class diagram
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +35,20 @@ def init_db():
             email TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL
+        )
+    """)
+
+    # new: the table for the tontine groups, from the TontineGroup class
+    # admin_id says which admin created the group, it points to a user in the users table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tontine_groups (
+            group_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            amount_due REAL NOT NULL,
+            frequency TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            admin_id INTEGER NOT NULL,
+            FOREIGN KEY (admin_id) REFERENCES users (user_id)
         )
     """)
     conn.commit()
@@ -95,7 +110,7 @@ def login():
     email = request.form["email"].strip().lower()
     password = request.form["password"]
 
-    # new: I now also take the user_id and the role from the database
+    # I take the user_id and the role from the database too
     conn = sqlite3.connect(DB_NAME)
     user = conn.execute(
         "SELECT user_id, full_name, password_hash, role FROM users WHERE email = ?",
@@ -108,16 +123,16 @@ def login():
     if user is None or not check_password_hash(user[2], password):
         return "Email or password is wrong. Please try again."
 
-    # new: I save who the user is in the session, so the app remembers them
+    # I save who the user is in the session, so the app remembers them
     session["user_id"] = user[0]
     session["name"] = user[1]
     session["role"] = user[3]
 
-    # new: after login I send the user to their dashboard
+    # after login I send the user to their dashboard
     return redirect("/dashboard")
 
 
-# new: the dashboard is the page users see after they log in
+# the dashboard is the page users see after they log in
 @app.get("/dashboard")
 def dashboard():
     # if nobody is logged in, I send them back to the login page
@@ -126,14 +141,14 @@ def dashboard():
     return "Hello, " + session["name"] + ". You are logged in as " + session["role"] + ". <a href='/logout'>Log out</a>"
 
 
-# new: logout clears the session, so the app forgets the user
+# logout clears the session, so the app forgets the user
 @app.get("/logout")
 def logout():
     session.clear()
     return redirect("/login")
 
 
-# I call init_db() here so the table is ready every time the app starts
+# I call init_db() here so the tables are ready every time the app starts
 init_db()
 
 # debug=True so the page reloads by itself when I change my code
