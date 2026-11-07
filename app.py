@@ -1,5 +1,5 @@
 # NextPay - app for tontine groups in Burundi
-# Step 26: the admin can now record contributions
+# Step 27: the app now works out whose turn it is to get the payout
 
 import os
 import secrets
@@ -57,7 +57,7 @@ def init_db():
         )
     """)
 
-    # new: the memberships table, from the Membership class in my class diagram
+    # the memberships table, from the Membership class in my class diagram
     # one row = one member inside one group, so the same member can be in many groups
     # the PRIMARY KEY on (group_id, user_id) stops me from adding the same person twice
     conn.execute("""
@@ -73,7 +73,7 @@ def init_db():
         )
     """)
 
-    # new: the contributions table, from the Contribution class in my class diagram
+    # the contributions table, from the Contribution class in my class diagram
     # one row = one payment made by one member of one group
     # status starts as Recorded, later it will change to Confirmed or Flagged
     conn.execute("""
@@ -87,8 +87,62 @@ def init_db():
             FOREIGN KEY (group_id, user_id) REFERENCES memberships (group_id, user_id)
         )
     """)
+
+    # new: the payouts table, from the Payout class in my class diagram
+    # one row = the money one member received in one round
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS payouts (
+            payout_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            round_number INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            payout_date TEXT NOT NULL,
+            FOREIGN KEY (group_id) REFERENCES tontine_groups (group_id),
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    """)
     conn.commit()
     conn.close()
+
+
+# new: this works out the payout turn for a group
+# the order is the join order: member 1 gets round 1, member 2 gets round 2, and so on
+# when everybody has received once, it starts again from member 1 (a new cycle)
+def next_turn(conn, group_id):
+    members = conn.execute(
+        """
+        SELECT u.user_id, u.full_name
+        FROM memberships m
+        JOIN users u ON u.user_id = m.user_id
+        WHERE m.group_id = ?
+        ORDER BY m.join_order
+        """,
+        (group_id,),
+    ).fetchall()
+
+    # how many payouts were already given, and how much money was paid out
+    done, paid_out = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM payouts WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()
+
+    # all the money members paid into the group
+    total_in = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM contributions WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()[0]
+
+    # the round number is the number of payouts done plus one
+    round_number = done + 1
+
+    # % gives the remainder, so after the last member it goes back to the first one
+    next_member = None
+    if len(members) > 0:
+        next_member = members[done % len(members)]
+
+    # the pot is the money in the group that was not paid out yet
+    return round_number, next_member, total_in - paid_out
 
 
 # this is my test page, I will remove it later
@@ -181,7 +235,7 @@ def dashboard():
     if session["role"] == "admin":
         page += " <a href='/groups/new'>Create a group</a>"
 
-    # new: I show the groups the user runs (as admin) or belongs to (as member)
+    # I show the groups the user runs (as admin) or belongs to (as member)
     # a member can be in many groups, so this list can have more than one group
     conn = sqlite3.connect(DB_NAME)
     groups = conn.execute(
@@ -265,7 +319,7 @@ def create_group():
     return redirect("/dashboard")
 
 
-# new: this shows the page of one group with its members
+# this shows the page of one group with its members
 @app.get("/groups/<int:group_id>")
 def group_page(group_id):
     if "user_id" not in session:
@@ -294,7 +348,7 @@ def group_page(group_id):
         conn.close()
         return "You cannot open this group."
 
-    # I get the members in the order they joined, this order will be used for the payouts later
+    # I get the members in the order they joined, this order will be used for the payouts
     members = conn.execute(
         """
         SELECT m.join_order, u.full_name, u.email, u.user_id
@@ -306,7 +360,7 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # new: I get the contributions of this group, the newest first
+    # I get the contributions of this group, the newest first
     contributions = conn.execute(
         """
         SELECT c.payment_date, u.full_name, c.amount, c.status
@@ -314,6 +368,19 @@ def group_page(group_id):
         JOIN users u ON u.user_id = c.user_id
         WHERE c.group_id = ?
         ORDER BY c.payment_date DESC, c.contribution_id DESC
+        """,
+        (group_id,),
+    ).fetchall()
+
+    # new: whose turn it is, and the payouts that were already given
+    round_number, next_member, pot = next_turn(conn, group_id)
+    payouts = conn.execute(
+        """
+        SELECT p.round_number, u.full_name, p.amount, p.payout_date
+        FROM payouts p
+        JOIN users u ON u.user_id = p.user_id
+        WHERE p.group_id = ?
+        ORDER BY p.round_number DESC
         """,
         (group_id,),
     ).fetchall()
@@ -325,12 +392,16 @@ def group_page(group_id):
         group=group,
         members=members,
         contributions=contributions,
+        round_number=round_number,
+        next_member=next_member,
+        pot=pot,
+        payouts=payouts,
         is_admin=is_admin,
         today=date.today().isoformat(),
     )
 
 
-# new: this runs when the admin clicks "Add member"
+# this runs when the admin clicks "Add member"
 @app.post("/groups/<int:group_id>/members")
 def add_member(group_id):
     if "user_id" not in session:
@@ -382,7 +453,7 @@ def add_member(group_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when the admin clicks "Remove" next to a member
+# this runs when the admin clicks "Remove" next to a member
 @app.post("/groups/<int:group_id>/members/<int:user_id>/remove")
 def remove_member(group_id, user_id):
     if "user_id" not in session:
@@ -411,7 +482,7 @@ def remove_member(group_id, user_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when the admin clicks "Record contribution"
+# this runs when the admin clicks "Record contribution"
 @app.post("/groups/<int:group_id>/contributions")
 def record_contribution(group_id):
     if "user_id" not in session:
@@ -456,6 +527,43 @@ def record_contribution(group_id):
     conn.execute(
         "INSERT INTO contributions (group_id, user_id, amount, payment_date) VALUES (?, ?, ?, ?)",
         (group_id, member_id, amount, payment_date),
+    )
+    conn.commit()
+    conn.close()
+
+    return redirect("/groups/" + str(group_id))
+
+
+# new: this runs when the admin clicks "Record payout"
+@app.post("/groups/<int:group_id>/payouts")
+def record_payout(group_id):
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DB_NAME)
+
+    # business rule: only the admin of THIS group can record a payout
+    group = conn.execute(
+        "SELECT 1 FROM tontine_groups WHERE group_id = ? AND admin_id = ?",
+        (group_id, session["user_id"]),
+    ).fetchone()
+    if group is None:
+        conn.close()
+        return "Only the admin of this group can record a payout."
+
+    # the app decides who gets the payout, the admin cannot choose (business rule)
+    round_number, next_member, pot = next_turn(conn, group_id)
+    if next_member is None:
+        conn.close()
+        return "Add members to the group first."
+    if pot <= 0:
+        conn.close()
+        return "There is no money in the pot yet. Record contributions first."
+
+    # the person who is next receives the whole pot
+    conn.execute(
+        "INSERT INTO payouts (group_id, user_id, round_number, amount, payout_date) VALUES (?, ?, ?, ?, ?)",
+        (group_id, next_member[0], round_number, pot, date.today().isoformat()),
     )
     conn.commit()
     conn.close()

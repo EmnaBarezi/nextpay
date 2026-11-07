@@ -36,7 +36,7 @@
         </form>
     {% endif %}
 
-    <!-- new: the history of contributions, every member of the group can see it -->
+    <!-- the history of contributions, every member of the group can see it -->
     <h2>Contributions</h2>
     {% if contributions|length == 0 %}
         <p>No contributions recorded yet.</p>
@@ -45,7 +45,7 @@
         <p>{{ c[0] }}: {{ c[1] }} paid {{ c[2] }} BIF ({{ c[3] }})</p>
     {% endfor %}
 
-    <!-- new: only the admin can record a contribution -->
+    <!-- only the admin can record a contribution -->
     {% if is_admin and members|length > 0 %}
         <h2>Record a contribution</h2>
         <form method="post" action="/groups/{{ group[0] }}/contributions">
@@ -65,6 +65,29 @@
             <button type="submit">Record contribution</button>
         </form>
     {% endif %}
+
+    <!-- new: whose turn it is to receive the payout, the app works it out from the join order -->
+    <h2>Payout</h2>
+    {% if next_member %}
+        <p>Round {{ round_number }}: <strong>{{ next_member[1] }}</strong> is next to receive the payout.</p>
+        <p>Money in the pot: {{ "%.0f"|format(pot) }} BIF</p>
+        <!-- only the admin can record the payout, and the app chooses who gets it -->
+        {% if is_admin and pot > 0 %}
+            <form method="post" action="/groups/{{ group[0] }}/payouts" onsubmit="return confirm('Record this payout?')">
+                <button type="submit">Record payout</button>
+            </form>
+        {% endif %}
+    {% else %}
+        <p>Add members to see who is next.</p>
+    {% endif %}
+
+    <h3>Payouts given</h3>
+    {% if payouts|length == 0 %}
+        <p>No payouts yet.</p>
+    {% endif %}
+    {% for p in payouts %}
+        <p>Round {{ p[0] }}: {{ p[1] }} received {{ "%.0f"|format(p[2]) }} BIF on {{ p[3] }}</p>
+    {% endfor %}
 
     <p><a href="/dashboard">Back to dashboard</a></p>
 </body>
