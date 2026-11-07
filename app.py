@@ -1,9 +1,10 @@
 # NextPay - app for tontine groups in Burundi
-# Step 23: admins can now create a tontine group
+# Step 24: admins can now add members to a group
 
 import os
 import secrets
 import sqlite3
+from datetime import date
 from flask import Flask, render_template, request, session, redirect
 from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -23,7 +24,7 @@ with open(".secret_key") as f:
 # the name of the file where all my data will be saved
 DB_NAME = "nextpay.db"
 
-# new: the only schedules I allow for a group
+# the only schedules I allow for a group
 FREQUENCIES = ["weekly", "every 2 weeks", "monthly"]
 
 
@@ -53,6 +54,22 @@ def init_db():
             start_date TEXT NOT NULL,
             admin_id INTEGER NOT NULL,
             FOREIGN KEY (admin_id) REFERENCES users (user_id)
+        )
+    """)
+
+    # new: the memberships table, from the Membership class in my class diagram
+    # one row = one member inside one group, so the same member can be in many groups
+    # the PRIMARY KEY on (group_id, user_id) stops me from adding the same person twice
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS memberships (
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            join_order INTEGER NOT NULL,
+            joined_at TEXT NOT NULL,
+            reliability_score REAL,
+            PRIMARY KEY (group_id, user_id),
+            FOREIGN KEY (group_id) REFERENCES tontine_groups (group_id),
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     """)
     conn.commit()
@@ -145,29 +162,43 @@ def dashboard():
 
     page = "Hello, " + session["name"] + ". You are logged in as " + session["role"] + "."
 
-    # new: only an admin sees the link to create a group and the list of their groups
+    # only an admin sees the link to create a group
     if session["role"] == "admin":
         page += " <a href='/groups/new'>Create a group</a>"
 
-        conn = sqlite3.connect(DB_NAME)
-        groups = conn.execute(
-            "SELECT name, amount_due, frequency, start_date FROM tontine_groups WHERE admin_id = ?",
-            (session["user_id"],),
-        ).fetchall()
-        conn.close()
+    # new: I show the groups the user runs (as admin) or belongs to (as member)
+    # a member can be in many groups, so this list can have more than one group
+    conn = sqlite3.connect(DB_NAME)
+    groups = conn.execute(
+        """
+        SELECT group_id, name, amount_due, frequency, start_date
+        FROM tontine_groups
+        WHERE admin_id = ?
+           OR group_id IN (SELECT group_id FROM memberships WHERE user_id = ?)
+        """,
+        (session["user_id"], session["user_id"]),
+    ).fetchall()
+    conn.close()
 
-        page += "<h2>Your groups</h2>"
-        if len(groups) == 0:
+    page += "<h2>Your groups</h2>"
+    if len(groups) == 0:
+        if session["role"] == "admin":
             page += "<p>You have no groups yet. Create your first group.</p>"
-        for g in groups:
-            # escape() makes sure a group name cannot break my page
-            page += "<p>" + str(escape(g[0])) + ": " + str(g[1]) + " BIF, " + g[2] + ", starts " + g[3] + "</p>"
+        else:
+            page += "<p>You are not in a group yet. Ask your group admin to add you using your email.</p>"
+    for g in groups:
+        # escape() makes sure a group name cannot break my page
+        # the name is a link to the page of that group
+        page += (
+            "<p><a href='/groups/" + str(g[0]) + "'>" + str(escape(g[1])) + "</a>: "
+            + str(g[2]) + " BIF, " + g[3] + ", starts " + g[4] + "</p>"
+        )
 
     page += "<p><a href='/logout'>Log out</a></p>"
     return page
 
 
-# new: this shows the page where an admin creates a group
+# this shows the page where an admin creates a group
 @app.get("/groups/new")
 def new_group_page():
     if "user_id" not in session:
@@ -178,7 +209,7 @@ def new_group_page():
     return render_template("create_group.html")
 
 
-# new: this runs when the admin clicks "Create group"
+# this runs when the admin clicks "Create group"
 @app.post("/groups")
 def create_group():
     if "user_id" not in session:
@@ -217,6 +248,103 @@ def create_group():
 
     # I send the admin back to the dashboard, where the new group shows in the list
     return redirect("/dashboard")
+
+
+# new: this shows the page of one group with its members
+@app.get("/groups/<int:group_id>")
+def group_page(group_id):
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DB_NAME)
+    group = conn.execute(
+        "SELECT group_id, name, amount_due, frequency, start_date, admin_id FROM tontine_groups WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()
+
+    # if the group does not exist I stop here
+    if group is None:
+        conn.close()
+        return "This group does not exist."
+
+    # I check if the logged in user is the admin or a member of this group
+    is_admin = group[5] == session["user_id"]
+    is_member = conn.execute(
+        "SELECT 1 FROM memberships WHERE group_id = ? AND user_id = ?",
+        (group_id, session["user_id"]),
+    ).fetchone()
+
+    # people who are not in the group cannot see its data
+    if not is_admin and not is_member:
+        conn.close()
+        return "You cannot open this group."
+
+    # I get the members in the order they joined, this order will be used for the payouts later
+    members = conn.execute(
+        """
+        SELECT m.join_order, u.full_name, u.email
+        FROM memberships m
+        JOIN users u ON u.user_id = m.user_id
+        WHERE m.group_id = ?
+        ORDER BY m.join_order
+        """,
+        (group_id,),
+    ).fetchall()
+    conn.close()
+
+    return render_template("group.html", group=group, members=members, is_admin=is_admin)
+
+
+# new: this runs when the admin clicks "Add member"
+@app.post("/groups/<int:group_id>/members")
+def add_member(group_id):
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DB_NAME)
+
+    # business rule: only the admin of THIS group can add members
+    group = conn.execute(
+        "SELECT 1 FROM tontine_groups WHERE group_id = ? AND admin_id = ?",
+        (group_id, session["user_id"]),
+    ).fetchone()
+    if group is None:
+        conn.close()
+        return "Only the admin of this group can add members."
+
+    # I look for a member account with the email the admin typed
+    email = request.form["email"].strip().lower()
+    user = conn.execute(
+        "SELECT user_id FROM users WHERE email = ? AND role = 'member'", (email,)
+    ).fetchone()
+    if user is None:
+        conn.close()
+        return "No member account found with this email. Ask them to register as a Member first."
+
+    # I check that this person is not already in the group
+    already = conn.execute(
+        "SELECT 1 FROM memberships WHERE group_id = ? AND user_id = ?",
+        (group_id, user[0]),
+    ).fetchone()
+    if already:
+        conn.close()
+        return "This person is already in the group."
+
+    # the new member gets the next join order: 1, 2, 3...
+    next_order = conn.execute(
+        "SELECT COALESCE(MAX(join_order), 0) + 1 FROM memberships WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()[0]
+
+    conn.execute(
+        "INSERT INTO memberships (group_id, user_id, join_order, joined_at) VALUES (?, ?, ?, ?)",
+        (group_id, user[0], next_order, date.today().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+    # I send the admin back to the group page, where the new member shows in the list
+    return redirect("/groups/" + str(group_id))
 
 
 # logout clears the session, so the app forgets the user
