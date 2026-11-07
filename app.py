@@ -1,10 +1,11 @@
 # NextPay - app for tontine groups in Burundi
-# Step 22: I added the table for the tontine groups
+# Step 23: admins can now create a tontine group
 
 import os
 import secrets
 import sqlite3
 from flask import Flask, render_template, request, session, redirect
+from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # this creates my app, everything else will be added to it later
@@ -22,6 +23,9 @@ with open(".secret_key") as f:
 # the name of the file where all my data will be saved
 DB_NAME = "nextpay.db"
 
+# new: the only schedules I allow for a group
+FREQUENCIES = ["weekly", "every 2 weeks", "monthly"]
+
 
 # this function creates my tables if they do not exist yet
 def init_db():
@@ -38,7 +42,7 @@ def init_db():
         )
     """)
 
-    # new: the table for the tontine groups, from the TontineGroup class
+    # the table for the tontine groups, from the TontineGroup class
     # admin_id says which admin created the group, it points to a user in the users table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS tontine_groups (
@@ -138,7 +142,81 @@ def dashboard():
     # if nobody is logged in, I send them back to the login page
     if "user_id" not in session:
         return redirect("/login")
-    return "Hello, " + session["name"] + ". You are logged in as " + session["role"] + ". <a href='/logout'>Log out</a>"
+
+    page = "Hello, " + session["name"] + ". You are logged in as " + session["role"] + "."
+
+    # new: only an admin sees the link to create a group and the list of their groups
+    if session["role"] == "admin":
+        page += " <a href='/groups/new'>Create a group</a>"
+
+        conn = sqlite3.connect(DB_NAME)
+        groups = conn.execute(
+            "SELECT name, amount_due, frequency, start_date FROM tontine_groups WHERE admin_id = ?",
+            (session["user_id"],),
+        ).fetchall()
+        conn.close()
+
+        page += "<h2>Your groups</h2>"
+        if len(groups) == 0:
+            page += "<p>You have no groups yet. Create your first group.</p>"
+        for g in groups:
+            # escape() makes sure a group name cannot break my page
+            page += "<p>" + str(escape(g[0])) + ": " + str(g[1]) + " BIF, " + g[2] + ", starts " + g[3] + "</p>"
+
+    page += "<p><a href='/logout'>Log out</a></p>"
+    return page
+
+
+# new: this shows the page where an admin creates a group
+@app.get("/groups/new")
+def new_group_page():
+    if "user_id" not in session:
+        return redirect("/login")
+    # business rule: only an admin can create a group
+    if session["role"] != "admin":
+        return "Only an admin can create a group."
+    return render_template("create_group.html")
+
+
+# new: this runs when the admin clicks "Create group"
+@app.post("/groups")
+def create_group():
+    if "user_id" not in session:
+        return redirect("/login")
+    # I check the role here too, because someone could send the form without using my page
+    if session["role"] != "admin":
+        return "Only an admin can create a group."
+
+    # I take what the admin typed in the form
+    name = request.form["name"].strip()
+    frequency = request.form["frequency"]
+    start_date = request.form["start_date"]
+
+    # I check the details and give a clear message if something is wrong
+    if name == "":
+        return "Group name cannot be empty. Please enter a name."
+    try:
+        amount_due = float(request.form["amount_due"])
+    except ValueError:
+        return "Contribution amount must be a number. Please enter an amount."
+    if amount_due <= 0:
+        return "Contribution amount must be more than 0. Please enter an amount."
+    if frequency not in FREQUENCIES:
+        return "Please choose how often members pay."
+    if start_date == "":
+        return "Please pick the first contribution date."
+
+    # I save the group, and admin_id is the admin who is logged in
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute(
+        "INSERT INTO tontine_groups (name, amount_due, frequency, start_date, admin_id) VALUES (?, ?, ?, ?, ?)",
+        (name, amount_due, frequency, start_date, session["user_id"]),
+    )
+    conn.commit()
+    conn.close()
+
+    # I send the admin back to the dashboard, where the new group shows in the list
+    return redirect("/dashboard")
 
 
 # logout clears the session, so the app forgets the user
