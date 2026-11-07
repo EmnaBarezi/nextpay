@@ -1,10 +1,11 @@
 # NextPay - app for tontine groups in Burundi
-# Step 27: the app now works out whose turn it is to get the payout
+# Step 28: members now see a reminder when a contribution is due soon
 
+import calendar
 import os
 import secrets
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from flask import Flask, render_template, request, session, redirect
 from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -88,7 +89,7 @@ def init_db():
         )
     """)
 
-    # new: the payouts table, from the Payout class in my class diagram
+    # the payouts table, from the Payout class in my class diagram
     # one row = the money one member received in one round
     conn.execute("""
         CREATE TABLE IF NOT EXISTS payouts (
@@ -106,7 +107,42 @@ def init_db():
     conn.close()
 
 
-# new: this works out the payout turn for a group
+# new: this adds a number of months to a date, and it can also go backwards with a negative number
+# if the day does not exist in that month (for example the 31st), I use the last day of the month
+def add_months(d, months):
+    year = d.year + (d.month - 1 + months) // 12
+    month = (d.month - 1 + months) % 12 + 1
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+# new: this finds the next due date of a group, and the due date before it
+# the group starts on start_date and then repeats every week, every 2 weeks or every month
+def next_due_date(start_date, frequency, today):
+    start = date.fromisoformat(start_date)
+
+    if frequency == "monthly":
+        # I count how many months passed since the start
+        k = (today.year - start.year) * 12 + (today.month - start.month)
+        if k < 0:
+            k = 0
+        # if this month's due date already passed, the next one is next month
+        if add_months(start, k) < today:
+            k += 1
+        return add_months(start, k), add_months(start, k - 1)
+
+    # weekly is every 7 days, every 2 weeks is every 14 days
+    step = 7 if frequency == "weekly" else 14
+    if start >= today:
+        due = start
+    else:
+        # I count how many full steps passed, and I round up to the next one
+        passed = (today - start).days
+        due = start + timedelta(days=((passed + step - 1) // step) * step)
+    return due, due - timedelta(days=step)
+
+
+# this works out the payout turn for a group
 # the order is the join order: member 1 gets round 1, member 2 gets round 2, and so on
 # when everybody has received once, it starts again from member 1 (a new cycle)
 def next_turn(conn, group_id):
@@ -235,19 +271,56 @@ def dashboard():
     if session["role"] == "admin":
         page += " <a href='/groups/new'>Create a group</a>"
 
-    # I show the groups the user runs (as admin) or belongs to (as member)
+    # I get the groups the user runs (as admin) or belongs to (as member)
     # a member can be in many groups, so this list can have more than one group
     conn = sqlite3.connect(DB_NAME)
     groups = conn.execute(
         """
-        SELECT group_id, name, amount_due, frequency, start_date
+        SELECT group_id, name, amount_due, frequency, start_date, admin_id
         FROM tontine_groups
         WHERE admin_id = ?
            OR group_id IN (SELECT group_id FROM memberships WHERE user_id = ?)
         """,
         (session["user_id"], session["user_id"]),
     ).fetchall()
+
+    # new: reminders, I look at each group where the user is a member
+    reminders = ""
+    today = date.today()
+    for g in groups:
+        # the admin does not pay into the group, so no reminder for the admin
+        if g[5] == session["user_id"]:
+            continue
+
+        due, previous = next_due_date(g[4], g[3], today)
+        days_left = (due - today).days
+
+        # I only remind when the due date is today, tomorrow or in 2 days
+        if days_left > 2:
+            continue
+
+        # if the member already paid after the previous due date, no reminder is needed
+        paid = conn.execute(
+            "SELECT 1 FROM contributions WHERE group_id = ? AND user_id = ? AND payment_date > ?",
+            (g[0], session["user_id"], previous.isoformat()),
+        ).fetchone()
+        if paid:
+            continue
+
+        if days_left == 0:
+            when = "today"
+        elif days_left == 1:
+            when = "tomorrow"
+        else:
+            when = "in 2 days"
+        reminders += (
+            "<p><strong>Reminder:</strong> your contribution of " + str(g[2]) + " BIF to "
+            + str(escape(g[1])) + " is due " + when + " (" + due.isoformat() + ").</p>"
+        )
     conn.close()
+
+    # the reminders show first, so the member sees them straight away
+    page += reminders
 
     page += "<h2>Your groups</h2>"
     if len(groups) == 0:
@@ -372,7 +445,7 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # new: whose turn it is, and the payouts that were already given
+    # whose turn it is, and the payouts that were already given
     round_number, next_member, pot = next_turn(conn, group_id)
     payouts = conn.execute(
         """
@@ -534,7 +607,7 @@ def record_contribution(group_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when the admin clicks "Record payout"
+# this runs when the admin clicks "Record payout"
 @app.post("/groups/<int:group_id>/payouts")
 def record_payout(group_id):
     if "user_id" not in session:
