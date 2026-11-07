@@ -1,5 +1,5 @@
 # NextPay - app for tontine groups in Burundi
-# Step 24: admins can now add members to a group
+# Step 26: the admin can now record contributions
 
 import os
 import secrets
@@ -70,6 +70,21 @@ def init_db():
             PRIMARY KEY (group_id, user_id),
             FOREIGN KEY (group_id) REFERENCES tontine_groups (group_id),
             FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    """)
+
+    # new: the contributions table, from the Contribution class in my class diagram
+    # one row = one payment made by one member of one group
+    # status starts as Recorded, later it will change to Confirmed or Flagged
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contributions (
+            contribution_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            payment_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Recorded',
+            FOREIGN KEY (group_id, user_id) REFERENCES memberships (group_id, user_id)
         )
     """)
     conn.commit()
@@ -282,7 +297,7 @@ def group_page(group_id):
     # I get the members in the order they joined, this order will be used for the payouts later
     members = conn.execute(
         """
-        SELECT m.join_order, u.full_name, u.email
+        SELECT m.join_order, u.full_name, u.email, u.user_id
         FROM memberships m
         JOIN users u ON u.user_id = m.user_id
         WHERE m.group_id = ?
@@ -290,9 +305,29 @@ def group_page(group_id):
         """,
         (group_id,),
     ).fetchall()
+
+    # new: I get the contributions of this group, the newest first
+    contributions = conn.execute(
+        """
+        SELECT c.payment_date, u.full_name, c.amount, c.status
+        FROM contributions c
+        JOIN users u ON u.user_id = c.user_id
+        WHERE c.group_id = ?
+        ORDER BY c.payment_date DESC, c.contribution_id DESC
+        """,
+        (group_id,),
+    ).fetchall()
     conn.close()
 
-    return render_template("group.html", group=group, members=members, is_admin=is_admin)
+    # today is used as the default date in the form
+    return render_template(
+        "group.html",
+        group=group,
+        members=members,
+        contributions=contributions,
+        is_admin=is_admin,
+        today=date.today().isoformat(),
+    )
 
 
 # new: this runs when the admin clicks "Add member"
@@ -344,6 +379,87 @@ def add_member(group_id):
     conn.close()
 
     # I send the admin back to the group page, where the new member shows in the list
+    return redirect("/groups/" + str(group_id))
+
+
+# new: this runs when the admin clicks "Remove" next to a member
+@app.post("/groups/<int:group_id>/members/<int:user_id>/remove")
+def remove_member(group_id, user_id):
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DB_NAME)
+
+    # business rule: only the admin of THIS group can remove members
+    group = conn.execute(
+        "SELECT 1 FROM tontine_groups WHERE group_id = ? AND admin_id = ?",
+        (group_id, session["user_id"]),
+    ).fetchone()
+    if group is None:
+        conn.close()
+        return "Only the admin of this group can remove members."
+
+    # I delete only this person's membership, their account stays and they can be in other groups
+    # the other members keep their join order, I do not renumber them
+    conn.execute(
+        "DELETE FROM memberships WHERE group_id = ? AND user_id = ?",
+        (group_id, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+    return redirect("/groups/" + str(group_id))
+
+
+# new: this runs when the admin clicks "Record contribution"
+@app.post("/groups/<int:group_id>/contributions")
+def record_contribution(group_id):
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DB_NAME)
+
+    # business rule: only the admin of THIS group can record contributions
+    group = conn.execute(
+        "SELECT 1 FROM tontine_groups WHERE group_id = ? AND admin_id = ?",
+        (group_id, session["user_id"]),
+    ).fetchone()
+    if group is None:
+        conn.close()
+        return "Only the admin of this group can record contributions."
+
+    # I take what the admin typed in the form and check it
+    payment_date = request.form["payment_date"]
+    try:
+        member_id = int(request.form["member_id"])
+        amount = float(request.form["amount"])
+    except ValueError:
+        conn.close()
+        return "Please choose a member and enter the amount as a number."
+    if amount <= 0:
+        conn.close()
+        return "Contribution amount must be more than 0. Please enter an amount."
+    if payment_date == "":
+        conn.close()
+        return "Please pick the payment date."
+
+    # the person must really be a member of this group
+    is_member = conn.execute(
+        "SELECT 1 FROM memberships WHERE group_id = ? AND user_id = ?",
+        (group_id, member_id),
+    ).fetchone()
+    if is_member is None:
+        conn.close()
+        return "This person is not a member of the group."
+
+    # I save the contribution with the status Recorded
+    conn.execute(
+        "INSERT INTO contributions (group_id, user_id, amount, payment_date) VALUES (?, ?, ?, ?)",
+        (group_id, member_id, amount, payment_date),
+    )
+    conn.commit()
+    conn.close()
+
     return redirect("/groups/" + str(group_id))
 
 

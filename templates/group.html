@@ -16,7 +16,14 @@
         <p>No members yet.</p>
     {% endif %}
     {% for m in members %}
-        <p>{{ m[0] }}. {{ m[1] }} ({{ m[2] }})</p>
+        <p>{{ m[0] }}. {{ m[1] }} ({{ m[2] }})
+        <!-- only the admin sees the Remove button, and the browser asks first -->
+        {% if is_admin %}
+            <form method="post" action="/groups/{{ group[0] }}/members/{{ m[3] }}/remove" style="display:inline" onsubmit="return confirm('Remove this member from the group?')">
+                <button type="submit">Remove</button>
+            </form>
+        {% endif %}
+        </p>
     {% endfor %}
 
     <!-- only the admin of this group sees the form to add a member -->
@@ -26,6 +33,36 @@
             <label for="email">Member email</label><br>
             <input type="email" id="email" name="email" required><br><br>
             <button type="submit">Add member</button>
+        </form>
+    {% endif %}
+
+    <!-- new: the history of contributions, every member of the group can see it -->
+    <h2>Contributions</h2>
+    {% if contributions|length == 0 %}
+        <p>No contributions recorded yet.</p>
+    {% endif %}
+    {% for c in contributions %}
+        <p>{{ c[0] }}: {{ c[1] }} paid {{ c[2] }} BIF ({{ c[3] }})</p>
+    {% endfor %}
+
+    <!-- new: only the admin can record a contribution -->
+    {% if is_admin and members|length > 0 %}
+        <h2>Record a contribution</h2>
+        <form method="post" action="/groups/{{ group[0] }}/contributions">
+            <label for="member_id">Who paid</label><br>
+            <select id="member_id" name="member_id">
+                {% for m in members %}
+                    <option value="{{ m[3] }}">{{ m[1] }}</option>
+                {% endfor %}
+            </select><br><br>
+
+            <label for="amount">Amount (BIF)</label><br>
+            <input type="number" id="amount" name="amount" min="1" value="{{ group[2]|int }}" required><br><br>
+
+            <label for="payment_date">Date paid</label><br>
+            <input type="date" id="payment_date" name="payment_date" value="{{ today }}" required><br><br>
+
+            <button type="submit">Record contribution</button>
         </form>
     {% endif %}
 
