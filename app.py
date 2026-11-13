@@ -1,5 +1,5 @@
 # NextPay - app for tontine groups in Burundi
-# Step 28: members now see a reminder when a contribution is due soon
+# Step 29: members can flag a contribution and the admin can resolve the dispute
 
 import calendar
 import os
@@ -58,7 +58,7 @@ def init_db():
         )
     """)
 
-    # the memberships table, from the Membership class in my class diagram
+    # new: the memberships table, from the Membership class in my class diagram
     # one row = one member inside one group, so the same member can be in many groups
     # the PRIMARY KEY on (group_id, user_id) stops me from adding the same person twice
     conn.execute("""
@@ -74,7 +74,7 @@ def init_db():
         )
     """)
 
-    # the contributions table, from the Contribution class in my class diagram
+    # new: the contributions table, from the Contribution class in my class diagram
     # one row = one payment made by one member of one group
     # status starts as Recorded, later it will change to Confirmed or Flagged
     conn.execute("""
@@ -89,7 +89,7 @@ def init_db():
         )
     """)
 
-    # the payouts table, from the Payout class in my class diagram
+    # new: the payouts table, from the Payout class in my class diagram
     # one row = the money one member received in one round
     conn.execute("""
         CREATE TABLE IF NOT EXISTS payouts (
@@ -101,6 +101,27 @@ def init_db():
             payout_date TEXT NOT NULL,
             FOREIGN KEY (group_id) REFERENCES tontine_groups (group_id),
             FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    """)
+
+    # new: the disputes table, from the Dispute class in my class diagram
+    # one row = one complaint about one contribution
+    # old_amount and new_amount keep a record of every correction (NFR 4)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS disputes (
+            dispute_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            contribution_id INTEGER NOT NULL,
+            raised_by INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Open',
+            resolution_note TEXT,
+            old_amount REAL,
+            new_amount REAL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (group_id) REFERENCES tontine_groups (group_id),
+            FOREIGN KEY (contribution_id) REFERENCES contributions (contribution_id),
+            FOREIGN KEY (raised_by) REFERENCES users (user_id)
         )
     """)
     conn.commit()
@@ -392,7 +413,7 @@ def create_group():
     return redirect("/dashboard")
 
 
-# this shows the page of one group with its members
+# new: this shows the page of one group with its members
 @app.get("/groups/<int:group_id>")
 def group_page(group_id):
     if "user_id" not in session:
@@ -421,7 +442,7 @@ def group_page(group_id):
         conn.close()
         return "You cannot open this group."
 
-    # I get the members in the order they joined, this order will be used for the payouts
+    # I get the members in the order they joined, this order will be used for the payouts later
     members = conn.execute(
         """
         SELECT m.join_order, u.full_name, u.email, u.user_id
@@ -433,10 +454,10 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # I get the contributions of this group, the newest first
+    # new: I get the contributions of this group, the newest first
     contributions = conn.execute(
         """
-        SELECT c.payment_date, u.full_name, c.amount, c.status
+        SELECT c.contribution_id, c.payment_date, u.full_name, c.amount, c.status
         FROM contributions c
         JOIN users u ON u.user_id = c.user_id
         WHERE c.group_id = ?
@@ -445,7 +466,7 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # whose turn it is, and the payouts that were already given
+    # new: whose turn it is, and the payouts that were already given
     round_number, next_member, pot = next_turn(conn, group_id)
     payouts = conn.execute(
         """
@@ -454,6 +475,23 @@ def group_page(group_id):
         JOIN users u ON u.user_id = p.user_id
         WHERE p.group_id = ?
         ORDER BY p.round_number DESC
+        """,
+        (group_id,),
+    ).fetchall()
+
+    # new: the disputes of this group, the newest first
+    # date(..., '+3 days') gives the day the admin should resolve it by
+    disputes = conn.execute(
+        """
+        SELECT d.dispute_id, d.contribution_id, c.payment_date, cu.full_name, c.amount,
+               ru.full_name, d.reason, d.status, d.resolution_note,
+               d.old_amount, d.new_amount, date(d.created_at, '+3 days')
+        FROM disputes d
+        JOIN contributions c ON c.contribution_id = d.contribution_id
+        JOIN users cu ON cu.user_id = c.user_id
+        JOIN users ru ON ru.user_id = d.raised_by
+        WHERE d.group_id = ?
+        ORDER BY d.dispute_id DESC
         """,
         (group_id,),
     ).fetchall()
@@ -469,12 +507,13 @@ def group_page(group_id):
         next_member=next_member,
         pot=pot,
         payouts=payouts,
+        disputes=disputes,
         is_admin=is_admin,
         today=date.today().isoformat(),
     )
 
 
-# this runs when the admin clicks "Add member"
+# new: this runs when the admin clicks "Add member"
 @app.post("/groups/<int:group_id>/members")
 def add_member(group_id):
     if "user_id" not in session:
@@ -526,7 +565,7 @@ def add_member(group_id):
     return redirect("/groups/" + str(group_id))
 
 
-# this runs when the admin clicks "Remove" next to a member
+# new: this runs when the admin clicks "Remove" next to a member
 @app.post("/groups/<int:group_id>/members/<int:user_id>/remove")
 def remove_member(group_id, user_id):
     if "user_id" not in session:
@@ -555,7 +594,7 @@ def remove_member(group_id, user_id):
     return redirect("/groups/" + str(group_id))
 
 
-# this runs when the admin clicks "Record contribution"
+# new: this runs when the admin clicks "Record contribution"
 @app.post("/groups/<int:group_id>/contributions")
 def record_contribution(group_id):
     if "user_id" not in session:
@@ -607,7 +646,7 @@ def record_contribution(group_id):
     return redirect("/groups/" + str(group_id))
 
 
-# this runs when the admin clicks "Record payout"
+# new: this runs when the admin clicks "Record payout"
 @app.post("/groups/<int:group_id>/payouts")
 def record_payout(group_id):
     if "user_id" not in session:
@@ -637,6 +676,135 @@ def record_payout(group_id):
     conn.execute(
         "INSERT INTO payouts (group_id, user_id, round_number, amount, payout_date) VALUES (?, ?, ?, ?, ?)",
         (group_id, next_member[0], round_number, pot, date.today().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+    return redirect("/groups/" + str(group_id))
+
+
+# new: this runs when a member clicks "Flag" next to a contribution
+@app.post("/groups/<int:group_id>/contributions/<int:contribution_id>/flag")
+def flag_contribution(group_id, contribution_id):
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DB_NAME)
+
+    # only a member of THIS group can flag a record (the admin resolves disputes, not flags them)
+    is_member = conn.execute(
+        "SELECT 1 FROM memberships WHERE group_id = ? AND user_id = ?",
+        (group_id, session["user_id"]),
+    ).fetchone()
+    if is_member is None:
+        conn.close()
+        return "Only a member of this group can flag a record."
+
+    # the contribution must belong to this group
+    contribution = conn.execute(
+        "SELECT status FROM contributions WHERE contribution_id = ? AND group_id = ?",
+        (contribution_id, group_id),
+    ).fetchone()
+    if contribution is None:
+        conn.close()
+        return "This record does not exist."
+    if contribution[0] == "Flagged":
+        conn.close()
+        return "This record is already flagged and waiting for the admin."
+
+    # the member must say why they think the record is wrong
+    reason = request.form["reason"].strip()
+    if reason == "":
+        conn.close()
+        return "Please write why you think this record is wrong."
+    if len(reason) > 300:
+        conn.close()
+        return "The reason is too long. Please use 300 characters or less."
+
+    # I save the dispute and I change the status of the contribution to Flagged
+    conn.execute(
+        "INSERT INTO disputes (group_id, contribution_id, raised_by, reason, created_at) VALUES (?, ?, ?, ?, ?)",
+        (group_id, contribution_id, session["user_id"], reason, date.today().isoformat()),
+    )
+    conn.execute(
+        "UPDATE contributions SET status = 'Flagged' WHERE contribution_id = ?",
+        (contribution_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    return redirect("/groups/" + str(group_id))
+
+
+# new: this runs when the admin clicks "Resolve" on a dispute
+@app.post("/groups/<int:group_id>/disputes/<int:dispute_id>/resolve")
+def resolve_dispute(group_id, dispute_id):
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DB_NAME)
+
+    # business rule: only the admin of THIS group can resolve a dispute
+    group = conn.execute(
+        "SELECT 1 FROM tontine_groups WHERE group_id = ? AND admin_id = ?",
+        (group_id, session["user_id"]),
+    ).fetchone()
+    if group is None:
+        conn.close()
+        return "Only the admin of this group can resolve a dispute."
+
+    # the dispute must belong to this group and still be open
+    dispute = conn.execute(
+        "SELECT contribution_id, status FROM disputes WHERE dispute_id = ? AND group_id = ?",
+        (dispute_id, group_id),
+    ).fetchone()
+    if dispute is None:
+        conn.close()
+        return "This dispute does not exist."
+    if dispute[1] != "Open":
+        conn.close()
+        return "This dispute is already resolved."
+
+    # the admin must choose to keep or correct the record, and write a note the member can see
+    decision = request.form["decision"]
+    note = request.form["note"].strip()
+    if decision not in ("keep", "correct"):
+        conn.close()
+        return "Please choose to keep or correct the record."
+    if note == "":
+        conn.close()
+        return "Please write a resolution note, so the member understands the decision."
+
+    # I take the amount now saved in the record, I keep it as the old amount
+    old_amount = conn.execute(
+        "SELECT amount FROM contributions WHERE contribution_id = ?", (dispute[0],)
+    ).fetchone()[0]
+    new_amount = None
+
+    if decision == "correct":
+        try:
+            new_amount = float(request.form["new_amount"])
+        except ValueError:
+            conn.close()
+            return "To correct the record, please enter the right amount as a number."
+        if new_amount <= 0:
+            conn.close()
+            return "The right amount must be more than 0."
+        # I change the amount in the contribution
+        conn.execute(
+            "UPDATE contributions SET amount = ? WHERE contribution_id = ?",
+            (new_amount, dispute[0]),
+        )
+
+    # the contribution goes back to Confirmed, like in my state diagram
+    conn.execute(
+        "UPDATE contributions SET status = 'Confirmed' WHERE contribution_id = ?",
+        (dispute[0],),
+    )
+    # the dispute is closed, and I keep the old and the new amount as a record of the correction
+    conn.execute(
+        "UPDATE disputes SET status = 'Resolved', resolution_note = ?, old_amount = ?, new_amount = ? WHERE dispute_id = ?",
+        (note, old_amount, new_amount, dispute_id),
     )
     conn.commit()
     conn.close()

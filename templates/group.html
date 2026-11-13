@@ -42,7 +42,15 @@
         <p>No contributions recorded yet.</p>
     {% endif %}
     {% for c in contributions %}
-        <p>{{ c[0] }}: {{ c[1] }} paid {{ c[2] }} BIF ({{ c[3] }})</p>
+        <p>{{ c[1] }}: {{ c[2] }} paid {{ c[3] }} BIF ({{ c[4] }})
+        <!-- new: a member can flag a record that looks wrong, and must say why -->
+        {% if not is_admin and c[4] != 'Flagged' %}
+            <form method="post" action="/groups/{{ group[0] }}/contributions/{{ c[0] }}/flag" style="display:inline">
+                <input type="text" name="reason" placeholder="Why is this wrong?" maxlength="300" required>
+                <button type="submit">Flag</button>
+            </form>
+        {% endif %}
+        </p>
     {% endfor %}
 
     <!-- only the admin can record a contribution -->
@@ -66,7 +74,39 @@
         </form>
     {% endif %}
 
-    <!-- new: whose turn it is to receive the payout, the app works it out from the join order -->
+    <!-- new: the disputes, every member can see them and the notes of the admin -->
+    <h2>Disputes</h2>
+    {% if disputes|length == 0 %}
+        <p>No disputes.</p>
+    {% endif %}
+    {% for d in disputes %}
+        <p><strong>{{ d[7] }}</strong>: {{ d[5] }} flagged the {{ d[2] }} payment of {{ d[3] }} ({{ d[4] }} BIF).<br>
+        Reason: {{ d[6] }}<br>
+        {% if d[7] == 'Resolved' %}
+            Admin note: {{ d[8] }}
+            {% if d[10] %}<br>Corrected from {{ d[9] }} to {{ d[10] }} BIF.{% else %}<br>The record was kept.{% endif %}
+        {% else %}
+            Waiting for the admin. Please resolve by {{ d[11] }}.
+        {% endif %}
+        </p>
+        <!-- only the admin can resolve an open dispute -->
+        {% if is_admin and d[7] == 'Open' %}
+            <form method="post" action="/groups/{{ group[0] }}/disputes/{{ d[0] }}/resolve">
+                <label for="decision{{ d[0] }}">Decision</label><br>
+                <select id="decision{{ d[0] }}" name="decision">
+                    <option value="keep">Keep the record as it is</option>
+                    <option value="correct">Correct the amount</option>
+                </select><br><br>
+                <label for="new_amount{{ d[0] }}">Right amount (only if you correct)</label><br>
+                <input type="number" id="new_amount{{ d[0] }}" name="new_amount" min="1"><br><br>
+                <label for="note{{ d[0] }}">Note for the member</label><br>
+                <input type="text" id="note{{ d[0] }}" name="note" maxlength="300" required><br><br>
+                <button type="submit">Resolve</button>
+            </form>
+        {% endif %}
+    {% endfor %}
+
+    <!-- whose turn it is to receive the payout, the app works it out from the join order -->
     <h2>Payout</h2>
     {% if next_member %}
         <p>Round {{ round_number }}: <strong>{{ next_member[1] }}</strong> is next to receive the payout.</p>
