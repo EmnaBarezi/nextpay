@@ -1,147 +1,166 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>NextPay - {{ group[1] }}</title>
-</head>
-<body>
-    <!-- this is the page of one group, colors come later -->
-    <!-- the parts between double curly brackets are filled in by Flask with the real data -->
+{% extends "base.html" %}
+{% block title %}{{ group[1] }}{% endblock %}
+{% block content %}
+    <!-- the parts between curly brackets are filled in by Flask with the real data -->
+    <p><a href="/dashboard">&larr; Back to dashboard</a></p>
     <h1>{{ group[1] }}</h1>
-    <p>{{ group[2] }} BIF per member, {{ group[3] }}. First contribution: {{ group[4] }}.</p>
 
-    <h2>Members</h2>
-    {% if members|length == 0 %}
-        <p>No members yet.</p>
-    {% endif %}
-    {% for m in members %}
-        <p>{{ m[0] }}. {{ m[1] }} ({{ m[2] }})
-        <!-- only the admin sees the Remove button, and the browser asks first -->
-        {% if is_admin %}
-            <form method="post" action="/groups/{{ group[0] }}/members/{{ m[3] }}/remove" style="display:inline" onsubmit="return confirm('Remove this member from the group?')">
-                <button type="submit">Remove</button>
-            </form>
-        {% endif %}
-        </p>
-    {% endfor %}
+    <div class="card stats">
+        <div class="stat"><span class="muted">Each member pays</span><b>{{ "%.0f"|format(group[2]) }} BIF</b></div>
+        <div class="stat"><span class="muted">How often</span><b>{{ group[3] }}</b></div>
+        <div class="stat"><span class="muted">First date</span><b>{{ group[4] }}</b></div>
+        <div class="stat"><span class="muted">Money in the pot</span><b>{{ "%.0f"|format(total_in - total_out) }} BIF</b></div>
+    </div>
 
-    <!-- only the admin of this group sees the form to add a member -->
-    {% if is_admin %}
-        <h2>Add a member</h2>
-        <form method="post" action="/groups/{{ group[0] }}/members">
-            <label for="email">Member email</label><br>
-            <input type="email" id="email" name="email" required><br><br>
-            <button type="submit">Add member</button>
-        </form>
-    {% endif %}
-
-    <!-- the history of contributions, every member of the group can see it -->
-    <h2>Contributions</h2>
-    {% if contributions|length == 0 %}
-        <p>No contributions recorded yet.</p>
-    {% endif %}
-    {% for c in contributions %}
-        <p>{{ c[1] }}: {{ c[2] }} paid {{ c[3] }} BIF ({{ c[4] }})
-        <!-- a member can flag a record that looks wrong, and must say why -->
-        {% if not is_admin and c[4] != 'Flagged' %}
-            <form method="post" action="/groups/{{ group[0] }}/contributions/{{ c[0] }}/flag" style="display:inline">
-                <input type="text" name="reason" placeholder="Why is this wrong?" maxlength="300" required>
-                <button type="submit">Flag</button>
-            </form>
-        {% endif %}
-        </p>
-    {% endfor %}
-
-    <!-- only the admin can record a contribution -->
-    {% if is_admin and members|length > 0 %}
-        <h2>Record a contribution</h2>
-        <form method="post" action="/groups/{{ group[0] }}/contributions">
-            <label for="member_id">Who paid</label><br>
-            <select id="member_id" name="member_id">
-                {% for m in members %}
-                    <option value="{{ m[3] }}">{{ m[1] }}</option>
-                {% endfor %}
-            </select><br><br>
-
-            <label for="amount">Amount (BIF)</label><br>
-            <input type="number" id="amount" name="amount" min="1" value="{{ group[2]|int }}" required><br><br>
-
-            <label for="payment_date">Date paid</label><br>
-            <input type="date" id="payment_date" name="payment_date" value="{{ today }}" required><br><br>
-
-            <button type="submit">Record contribution</button>
-        </form>
-    {% endif %}
-
-    <!-- the disputes, every member can see them and the notes of the admin -->
-    <h2>Disputes</h2>
-    {% if disputes|length == 0 %}
-        <p>No disputes.</p>
-    {% endif %}
-    {% for d in disputes %}
-        <p><strong>{{ d[7] }}</strong>: {{ d[5] }} flagged the {{ d[2] }} payment of {{ d[3] }} ({{ d[4] }} BIF).<br>
-        Reason: {{ d[6] }}<br>
-        {% if d[7] == 'Resolved' %}
-            Admin note: {{ d[8] }}
-            {% if d[10] %}<br>Corrected from {{ d[9] }} to {{ d[10] }} BIF.{% else %}<br>The record was kept.{% endif %}
+    <!-- payout: the app works out whose turn it is from the join order -->
+    <div class="card">
+        <h2>Next payout</h2>
+        {% if next_member %}
+            <p>Round {{ round_number }}: <strong>{{ next_member[1] }}</strong> is next to receive the payout.</p>
+            {% if waiting|length > 0 %}
+                <!-- the payout waits until everybody has paid for this round -->
+                <p class="muted">Waiting for payment from: {{ waiting|join(', ') }}</p>
+            {% endif %}
+            {% if is_admin %}
+                <form method="post" action="/groups/{{ group[0] }}/payouts" onsubmit="return confirm('Record this payout?')">
+                    <button type="submit" {% if waiting|length > 0 or pot <= 0 %}disabled{% endif %}>Record payout</button>
+                </form>
+            {% endif %}
         {% else %}
-            Waiting for the admin. Please resolve by {{ d[11] }}.
+            <p class="empty">Add members to see who is next.</p>
         {% endif %}
-        </p>
-        <!-- only the admin can resolve an open dispute -->
-        {% if is_admin and d[7] == 'Open' %}
-            <form method="post" action="/groups/{{ group[0] }}/disputes/{{ d[0] }}/resolve">
-                <label for="decision{{ d[0] }}">Decision</label><br>
-                <select id="decision{{ d[0] }}" name="decision">
-                    <option value="keep">Keep the record as it is</option>
-                    <option value="correct">Correct the amount</option>
-                </select><br><br>
-                <label for="new_amount{{ d[0] }}">Right amount (only if you correct)</label><br>
-                <input type="number" id="new_amount{{ d[0] }}" name="new_amount" min="1"><br><br>
-                <label for="note{{ d[0] }}">Note for the member</label><br>
-                <input type="text" id="note{{ d[0] }}" name="note" maxlength="300" required><br><br>
-                <button type="submit">Resolve</button>
+        <h2 style="margin-top:1rem">Payouts given</h2>
+        {% if payouts|length == 0 %}
+            <p class="empty">No payouts yet.</p>
+        {% endif %}
+        {% for p in payouts %}
+            <div class="row"><span>Round {{ p[0] }}: {{ p[1] }}</span><span>{{ "%.0f"|format(p[2]) }} BIF on {{ p[3] }}</span></div>
+        {% endfor %}
+    </div>
+
+    <!-- members, with the reliability score of each one -->
+    <div class="card">
+        <h2>Members</h2>
+        {% if members|length == 0 %}
+            <p class="empty">No members yet.</p>
+        {% endif %}
+        {% for m in members %}
+            <div class="row">
+                <div>
+                    <strong>{{ m[0] }}. {{ m[1] }}</strong>
+                    <div class="muted">{{ m[2] }} &middot;
+                        {% if m[4] is none %}No payment due yet{% else %}Paid on time: {{ m[4] }}%{% endif %}
+                    </div>
+                </div>
+                <!-- only the admin sees the Remove button, and the browser asks first -->
+                {% if is_admin %}
+                    <form method="post" action="/groups/{{ group[0] }}/members/{{ m[3] }}/remove" class="inline" onsubmit="return confirm('Remove this member from the group?')">
+                        <button class="danger" type="submit">Remove</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endfor %}
+        {% if is_admin %}
+            <form method="post" action="/groups/{{ group[0] }}/members">
+                <label for="email">Add a member (their email)</label>
+                <input type="email" id="email" name="email" required>
+                <button class="wide" type="submit">Add member</button>
             </form>
         {% endif %}
-    {% endfor %}
+    </div>
 
-    <!-- new: the report, every member can see the totals of the group -->
-    <h2>Report</h2>
-    <p>Total saved: {{ "%.0f"|format(total_in) }} BIF</p>
-    <p>Total paid out: {{ "%.0f"|format(total_out) }} BIF</p>
-    <p>Money still in the pot: {{ "%.0f"|format(total_in - total_out) }} BIF</p>
-    <h3>What each member paid</h3>
-    {% if per_member|length == 0 %}
-        <p>No members yet.</p>
-    {% endif %}
-    {% for r in per_member %}
-        <p>{{ r[0] }}: {{ "%.0f"|format(r[1]) }} BIF in {{ r[2] }} payment(s)</p>
-    {% endfor %}
-
-    <!-- whose turn it is to receive the payout, the app works it out from the join order -->
-    <h2>Payout</h2>
-    {% if next_member %}
-        <p>Round {{ round_number }}: <strong>{{ next_member[1] }}</strong> is next to receive the payout.</p>
-        <p>Money in the pot: {{ "%.0f"|format(pot) }} BIF</p>
-        <!-- only the admin can record the payout, and the app chooses who gets it -->
-        {% if is_admin and pot > 0 %}
-            <form method="post" action="/groups/{{ group[0] }}/payouts" onsubmit="return confirm('Record this payout?')">
-                <button type="submit">Record payout</button>
+    <!-- contributions: every member of the group can see the history -->
+    <div class="card">
+        <h2>Contributions</h2>
+        {% if contributions|length == 0 %}
+            <p class="empty">No contributions recorded yet.</p>
+        {% endif %}
+        {% for c in contributions %}
+            <div class="row">
+                <div>
+                    <strong>{{ c[2] }}</strong> paid {{ "%.0f"|format(c[3]) }} BIF
+                    <div class="muted">{{ c[1] }}</div>
+                </div>
+                <span class="badge {{ c[4]|lower }}">{{ c[4] }}</span>
+                <!-- a member can flag a record that looks wrong, and must say why -->
+                {% if not is_admin and c[4] != 'Flagged' %}
+                    <form method="post" action="/groups/{{ group[0] }}/contributions/{{ c[0] }}/flag" class="flagform">
+                        <input type="text" name="reason" placeholder="Why is this wrong?" maxlength="300" required>
+                        <button class="plain" type="submit">Flag</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <!-- only the admin can record a contribution -->
+        {% if is_admin and members|length > 0 %}
+            <h2 style="margin-top:1rem">Record a contribution</h2>
+            <form method="post" action="/groups/{{ group[0] }}/contributions">
+                <label for="member_id">Who paid</label>
+                <select id="member_id" name="member_id">
+                    {% for m in members %}
+                        <option value="{{ m[3] }}">{{ m[1] }}</option>
+                    {% endfor %}
+                </select>
+                <label for="amount">Amount (BIF)</label>
+                <input type="number" id="amount" name="amount" min="1" value="{{ group[2]|int }}" required>
+                <label for="payment_date">Date paid</label>
+                <input type="date" id="payment_date" name="payment_date" value="{{ today }}" required>
+                <button class="wide" type="submit">Record contribution</button>
             </form>
         {% endif %}
-    {% else %}
-        <p>Add members to see who is next.</p>
-    {% endif %}
+    </div>
 
-    <h3>Payouts given</h3>
-    {% if payouts|length == 0 %}
-        <p>No payouts yet.</p>
-    {% endif %}
-    {% for p in payouts %}
-        <p>Round {{ p[0] }}: {{ p[1] }} received {{ "%.0f"|format(p[2]) }} BIF on {{ p[3] }}</p>
-    {% endfor %}
+    <!-- disputes: every member can see them and the notes of the admin -->
+    <div class="card">
+        <h2>Disputes</h2>
+        {% if disputes|length == 0 %}
+            <p class="empty">No disputes.</p>
+        {% endif %}
+        {% for d in disputes %}
+            <div class="row" style="display:block">
+                <p style="margin:0">
+                    <span class="badge {% if d[7] == 'Open' %}flagged{% else %}confirmed{% endif %}">{{ d[7] }}</span>
+                    {{ d[5] }} flagged the {{ d[2] }} payment of {{ d[3] }} ({{ "%.0f"|format(d[4]) }} BIF).
+                </p>
+                <div class="note">Reason: {{ d[6] }}</div>
+                {% if d[7] == 'Resolved' %}
+                    <div class="note">
+                        Admin note: {{ d[8] }}<br>
+                        {% if d[10] %}Corrected from {{ "%.0f"|format(d[9]) }} to {{ "%.0f"|format(d[10]) }} BIF.{% else %}The record was kept.{% endif %}
+                    </div>
+                {% else %}
+                    <p class="muted">Waiting for the admin. Please resolve by {{ d[11] }}.</p>
+                {% endif %}
+                <!-- only the admin can resolve an open dispute -->
+                {% if is_admin and d[7] == 'Open' %}
+                    <form method="post" action="/groups/{{ group[0] }}/disputes/{{ d[0] }}/resolve">
+                        <label for="decision{{ d[0] }}">Decision</label>
+                        <select id="decision{{ d[0] }}" name="decision">
+                            <option value="keep">Keep the record as it is</option>
+                            <option value="correct">Correct the amount</option>
+                        </select>
+                        <label for="new_amount{{ d[0] }}">Right amount (only if you correct)</label>
+                        <input type="number" id="new_amount{{ d[0] }}" name="new_amount" min="1">
+                        <label for="note{{ d[0] }}">Note for the member</label>
+                        <input type="text" id="note{{ d[0] }}" name="note" maxlength="300" required>
+                        <button class="wide" type="submit">Resolve</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
 
-    <p><a href="/dashboard">Back to dashboard</a></p>
-</body>
-</html>
+    <!-- report: the totals of the group -->
+    <div class="card">
+        <h2>Report</h2>
+        <div class="stats">
+            <div class="stat"><span class="muted">Total saved</span><b>{{ "%.0f"|format(total_in) }} BIF</b></div>
+            <div class="stat"><span class="muted">Total paid out</span><b>{{ "%.0f"|format(total_out) }} BIF</b></div>
+            <div class="stat"><span class="muted">Still in the pot</span><b>{{ "%.0f"|format(total_in - total_out) }} BIF</b></div>
+        </div>
+        <h2 style="margin-top:1rem">What each member paid</h2>
+        {% for r in per_member %}
+            <div class="row"><span>{{ r[0] }}</span><span>{{ "%.0f"|format(r[1]) }} BIF in {{ r[2] }} payment(s)</span></div>
+        {% endfor %}
+    </div>
+{% endblock %}

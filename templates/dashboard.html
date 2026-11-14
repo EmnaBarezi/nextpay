@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+    <h1>Hello, {{ session['name'] }}</h1>
+
+    <!-- reminders show first, so the member sees them straight away -->
+    {% for r in reminders %}
+        <div class="alert"><strong>Reminder:</strong> your contribution of {{ "%.0f"|format(r[1]) }} BIF to {{ r[0] }} is due {{ r[2] }} ({{ r[3] }}).</div>
+    {% endfor %}
+
+    <div class="card">
+        <h2>{% if session['role'] == 'admin' %}Groups you run{% else %}Your groups{% endif %}</h2>
+        {% if groups|length == 0 %}
+            {% if session['role'] == 'admin' %}
+                <p class="empty">You have no groups yet. Create your first group.</p>
+            {% else %}
+                <p class="empty">You are not in a group yet. Ask your group admin to add you using your email.</p>
+            {% endif %}
+        {% endif %}
+        {% for g in groups %}
+            <div class="row">
+                <div>
+                    <strong>{{ g[1] }}</strong>
+                    <div class="muted">{{ "%.0f"|format(g[2]) }} BIF, {{ g[3] }}, {{ g[5] }} member(s)</div>
+                </div>
+                <a class="btn plain" href="/groups/{{ g[0] }}">Open</a>
+            </div>
+        {% endfor %}
+    </div>
+
+    <!-- only an admin can create a group -->
+    {% if session['role'] == 'admin' %}
+        <a class="btn wide" href="/groups/new">Create a group</a>
+    {% endif %}
+{% endblock %}

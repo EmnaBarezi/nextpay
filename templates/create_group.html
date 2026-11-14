@@ -1,37 +1,28 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>NextPay - Create group</title>
-</head>
-<body>
-    <!-- this is the page where an admin creates a tontine group, colors come later -->
-    <h1>Create a group</h1>
+{% extends "base.html" %}
+{% block title %}Create group{% endblock %}
+{% block content %}
+    <p><a href="/dashboard">&larr; Back to dashboard</a></p>
+    <div class="card">
+        <h1>Create a group</h1>
+        <form method="post" action="/groups">
+            <label for="name">Group name</label>
+            <input type="text" id="name" name="name" required>
 
-    <!-- the form sends the group details to /groups when the admin clicks the button -->
-    <form method="post" action="/groups">
+            <label for="amount_due">Amount each member pays (BIF)</label>
+            <input type="number" id="amount_due" name="amount_due" min="1" required>
 
-        <label for="name">Group name</label><br>
-        <input type="text" id="name" name="name" required><br><br>
+            <!-- the schedule: how often the members pay -->
+            <label for="frequency">How often</label>
+            <select id="frequency" name="frequency">
+                <option value="weekly">Weekly</option>
+                <option value="every 2 weeks">Every 2 weeks</option>
+                <option value="monthly">Monthly</option>
+            </select>
 
-        <label for="amount_due">Amount each member pays (BIF)</label><br>
-        <input type="number" id="amount_due" name="amount_due" min="1" required><br><br>
+            <label for="start_date">First contribution date</label>
+            <input type="date" id="start_date" name="start_date" required>
 
-        <!-- the schedule: how often the members pay -->
-        <label for="frequency">How often</label><br>
-        <select id="frequency" name="frequency">
-            <option value="weekly">Weekly</option>
-            <option value="every 2 weeks">Every 2 weeks</option>
-            <option value="monthly">Monthly</option>
-        </select><br><br>
-
-        <label for="start_date">First contribution date</label><br>
-        <input type="date" id="start_date" name="start_date" required><br><br>
-
-        <button type="submit">Create group</button>
-    </form>
-
-    <p><a href="/dashboard">Back to dashboard</a></p>
-</body>
-</html>
+            <button class="wide" type="submit">Create group</button>
+        </form>
+    </div>
+{% endblock %}

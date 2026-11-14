@@ -1,5 +1,5 @@
 # NextPay - app for tontine groups in Burundi
-# Step 30: the group page now has a report with the totals
+# Step 31: nicer pages, payout rule and reliability score
 
 import calendar
 import os
@@ -7,7 +7,6 @@ import secrets
 import sqlite3
 from datetime import date, timedelta
 from flask import Flask, render_template, request, session, redirect
-from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # this creates my app, everything else will be added to it later
@@ -27,6 +26,12 @@ DB_NAME = "nextpay.db"
 
 # the only schedules I allow for a group
 FREQUENCIES = ["weekly", "every 2 weeks", "monthly"]
+
+
+# new: one function to show an error on a proper page, with a button to go back
+# before, I returned plain text, which looked like a blank page
+def message(text, back="/dashboard", status=400):
+    return render_template("message.html", text=text, back=back), status
 
 
 # this function creates my tables if they do not exist yet
@@ -163,6 +168,66 @@ def next_due_date(start_date, frequency, today):
     return due, due - timedelta(days=step)
 
 
+# new: the reliability score of one member in one group (FR 8.1)
+# score = contributions paid on time / contributions due x 100
+# a contribution is on time when it is paid after the previous due date and on or before this due date
+# I only count the due dates since the member joined the group
+def reliability(conn, group_id, user_id, start_date, frequency, joined_at, today):
+    start = date.fromisoformat(start_date)
+    joined = date.fromisoformat(joined_at)
+
+    # I list every due date from the start of the group until today, with the one before it
+    periods = []
+    if frequency == "monthly":
+        k = 0
+        while add_months(start, k) <= today:
+            periods.append((add_months(start, k - 1), add_months(start, k)))
+            k += 1
+    else:
+        step = timedelta(days=7 if frequency == "weekly" else 14)
+        d = start
+        while d <= today:
+            periods.append((d - step, d))
+            d += step
+
+    # I keep only the due dates after the member joined
+    periods = [p for p in periods if p[1] >= joined]
+    if len(periods) == 0:
+        return None
+
+    on_time = 0
+    for previous, due in periods:
+        paid = conn.execute(
+            """
+            SELECT 1 FROM contributions
+            WHERE group_id = ? AND user_id = ? AND payment_date > ? AND payment_date <= ?
+            """,
+            (group_id, user_id, previous.isoformat(), due.isoformat()),
+        ).fetchone()
+        if paid:
+            on_time += 1
+
+    return round(on_time * 100 / len(periods))
+
+
+# new: the names of the members who did not pay yet for this round
+# in round 1 everybody needs at least 1 contribution, in round 2 at least 2, and so on
+def unpaid_members(conn, group_id, round_number):
+    rows = conn.execute(
+        """
+        SELECT u.full_name
+        FROM memberships m
+        JOIN users u ON u.user_id = m.user_id
+        WHERE m.group_id = ?
+          AND (SELECT COUNT(*) FROM contributions c
+               WHERE c.group_id = m.group_id AND c.user_id = m.user_id) < ?
+        ORDER BY m.join_order
+        """,
+        (group_id, round_number),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
 # this works out the payout turn for a group
 # the order is the join order: member 1 gets round 1, member 2 gets round 2, and so on
 # when everybody has received once, it starts again from member 1 (a new cycle)
@@ -202,10 +267,12 @@ def next_turn(conn, group_id):
     return round_number, next_member, total_in - paid_out
 
 
-# this is my test page, I will remove it later
+# new: the home page sends the user to the right place
 @app.get("/")
 def home():
-    return "NextPay is running"
+    if "user_id" in session:
+        return redirect("/dashboard")
+    return redirect("/login")
 
 
 # this shows the register page from the templates folder
@@ -223,6 +290,16 @@ def register():
     password = request.form["password"]
     role = request.form["role"]
 
+    # I check the details and give a clear message if something is wrong
+    if full_name == "":
+        return message("Full name cannot be empty. Please enter your name.", "/register")
+    if "@" not in email or "." not in email:
+        return message("This email does not look right. Please check it.", "/register")
+    if len(password) < 8:
+        return message("Password is too short. Please use at least 8 characters.", "/register")
+    if role not in ("admin", "member"):
+        return message("Please choose Admin or Member.", "/register")
+
     # I never save the real password, only a scrambled version of it (a hash)
     # this is for security, so nobody can read the passwords from the database
     password_hash = generate_password_hash(password)
@@ -230,18 +307,24 @@ def register():
     # I try to save the user in the users table
     conn = sqlite3.connect(DB_NAME)
     try:
-        conn.execute(
+        cursor = conn.execute(
             "INSERT INTO users (full_name, email, password_hash, role) VALUES (?, ?, ?, ?)",
             (full_name, email, password_hash, role),
         )
         conn.commit()
+        new_id = cursor.lastrowid
     except sqlite3.IntegrityError:
         # email is UNIQUE in my table, so this happens when the email already has an account
-        return "This email already has an account. Please log in instead."
+        return message("This email already has an account. Please log in instead.", "/login", 409)
     finally:
         conn.close()
 
-    return "Account created. Welcome to NextPay, " + full_name + "."
+    # new: I log the user in straight away and send them to the dashboard
+    session.clear()
+    session["user_id"] = new_id
+    session["name"] = full_name
+    session["role"] = role
+    return redirect("/dashboard")
 
 
 # this shows the login page from the templates folder
@@ -268,9 +351,10 @@ def login():
     # check_password_hash compares what the user typed with the saved hash
     # I use the same message for both mistakes, so nobody can guess which emails exist
     if user is None or not check_password_hash(user[2], password):
-        return "Email or password is wrong. Please try again."
+        return message("Email or password is wrong. Please try again.", "/login", 401)
 
     # I save who the user is in the session, so the app remembers them
+    session.clear()
     session["user_id"] = user[0]
     session["name"] = user[1]
     session["role"] = user[3]
@@ -286,31 +370,28 @@ def dashboard():
     if "user_id" not in session:
         return redirect("/login")
 
-    page = "Hello, " + session["name"] + ". You are logged in as " + session["role"] + "."
-
-    # only an admin sees the link to create a group
-    if session["role"] == "admin":
-        page += " <a href='/groups/new'>Create a group</a>"
-
     # I get the groups the user runs (as admin) or belongs to (as member)
     # a member can be in many groups, so this list can have more than one group
     conn = sqlite3.connect(DB_NAME)
     groups = conn.execute(
         """
-        SELECT group_id, name, amount_due, frequency, start_date, admin_id
-        FROM tontine_groups
-        WHERE admin_id = ?
-           OR group_id IN (SELECT group_id FROM memberships WHERE user_id = ?)
+        SELECT g.group_id, g.name, g.amount_due, g.frequency, g.start_date,
+               (SELECT COUNT(*) FROM memberships m WHERE m.group_id = g.group_id),
+               g.admin_id
+        FROM tontine_groups g
+        WHERE g.admin_id = ?
+           OR g.group_id IN (SELECT group_id FROM memberships WHERE user_id = ?)
+        ORDER BY g.group_id DESC
         """,
         (session["user_id"], session["user_id"]),
     ).fetchall()
 
     # reminders, I look at each group where the user is a member
-    reminders = ""
+    reminders = []
     today = date.today()
     for g in groups:
         # the admin does not pay into the group, so no reminder for the admin
-        if g[5] == session["user_id"]:
+        if g[6] == session["user_id"]:
             continue
 
         due, previous = next_due_date(g[4], g[3], today)
@@ -334,31 +415,10 @@ def dashboard():
             when = "tomorrow"
         else:
             when = "in 2 days"
-        reminders += (
-            "<p><strong>Reminder:</strong> your contribution of " + str(g[2]) + " BIF to "
-            + str(escape(g[1])) + " is due " + when + " (" + due.isoformat() + ").</p>"
-        )
+        reminders.append((g[1], g[2], when, due.isoformat()))
     conn.close()
 
-    # the reminders show first, so the member sees them straight away
-    page += reminders
-
-    page += "<h2>Your groups</h2>"
-    if len(groups) == 0:
-        if session["role"] == "admin":
-            page += "<p>You have no groups yet. Create your first group.</p>"
-        else:
-            page += "<p>You are not in a group yet. Ask your group admin to add you using your email.</p>"
-    for g in groups:
-        # escape() makes sure a group name cannot break my page
-        # the name is a link to the page of that group
-        page += (
-            "<p><a href='/groups/" + str(g[0]) + "'>" + str(escape(g[1])) + "</a>: "
-            + str(g[2]) + " BIF, " + g[3] + ", starts " + g[4] + "</p>"
-        )
-
-    page += "<p><a href='/logout'>Log out</a></p>"
-    return page
+    return render_template("dashboard.html", groups=groups, reminders=reminders)
 
 
 # this shows the page where an admin creates a group
@@ -368,7 +428,7 @@ def new_group_page():
         return redirect("/login")
     # business rule: only an admin can create a group
     if session["role"] != "admin":
-        return "Only an admin can create a group."
+        return message("Only an admin can create a group.", "/dashboard", 403)
     return render_template("create_group.html")
 
 
@@ -379,7 +439,7 @@ def create_group():
         return redirect("/login")
     # I check the role here too, because someone could send the form without using my page
     if session["role"] != "admin":
-        return "Only an admin can create a group."
+        return message("Only an admin can create a group.", "/dashboard", 403)
 
     # I take what the admin typed in the form
     name = request.form["name"].strip()
@@ -388,17 +448,22 @@ def create_group():
 
     # I check the details and give a clear message if something is wrong
     if name == "":
-        return "Group name cannot be empty. Please enter a name."
+        return message("Group name cannot be empty. Please enter a name.", "/groups/new")
     try:
         amount_due = float(request.form["amount_due"])
     except ValueError:
-        return "Contribution amount must be a number. Please enter an amount."
+        return message("Contribution amount must be a number. Please enter an amount.", "/groups/new")
     if amount_due <= 0:
-        return "Contribution amount must be more than 0. Please enter an amount."
+        return message("Contribution amount must be more than 0. Please enter an amount.", "/groups/new")
     if frequency not in FREQUENCIES:
-        return "Please choose how often members pay."
-    if start_date == "":
-        return "Please pick the first contribution date."
+        return message("Please choose how often members pay.", "/groups/new")
+    try:
+        first_date = date.fromisoformat(start_date)
+    except ValueError:
+        return message("Please pick the first contribution date.", "/groups/new")
+    # new: a date far in the past would make the reliability score slow to work out
+    if first_date < date(2020, 1, 1):
+        return message("The first contribution date must be in 2020 or later.", "/groups/new")
 
     # I save the group, and admin_id is the admin who is logged in
     conn = sqlite3.connect(DB_NAME)
@@ -428,7 +493,7 @@ def group_page(group_id):
     # if the group does not exist I stop here
     if group is None:
         conn.close()
-        return "This group does not exist."
+        return message("This group does not exist.", "/dashboard", 404)
 
     # I check if the logged in user is the admin or a member of this group
     is_admin = group[5] == session["user_id"]
@@ -440,12 +505,12 @@ def group_page(group_id):
     # people who are not in the group cannot see its data
     if not is_admin and not is_member:
         conn.close()
-        return "You cannot open this group."
+        return message("You cannot open this group.", "/dashboard", 403)
 
     # I get the members in the order they joined, this order will be used for the payouts
-    members = conn.execute(
+    member_rows = conn.execute(
         """
-        SELECT m.join_order, u.full_name, u.email, u.user_id
+        SELECT m.join_order, u.full_name, u.email, u.user_id, m.joined_at
         FROM memberships m
         JOIN users u ON u.user_id = m.user_id
         WHERE m.group_id = ?
@@ -453,6 +518,13 @@ def group_page(group_id):
         """,
         (group_id,),
     ).fetchall()
+
+    # new: I add the reliability score of each member to the row
+    today = date.today()
+    members = []
+    for m in member_rows:
+        score = reliability(conn, group_id, m[3], group[4], group[3], m[4], today)
+        members.append((m[0], m[1], m[2], m[3], score))
 
     # I get the contributions of this group, the newest first
     # I also take the contribution_id, because the Flag button needs it
@@ -467,8 +539,9 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # whose turn it is, and the payouts that were already given
+    # whose turn it is, who still has to pay for this round, and the payouts already given
     round_number, next_member, pot = next_turn(conn, group_id)
+    waiting = unpaid_members(conn, group_id, round_number)
     payouts = conn.execute(
         """
         SELECT p.round_number, u.full_name, p.amount, p.payout_date
@@ -497,7 +570,7 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # new: the report of the group, total saved, total paid out and what each member paid (FR 9.1)
+    # the report of the group, total saved, total paid out and what each member paid (FR 9.1)
     total_in = conn.execute(
         "SELECT COALESCE(SUM(amount), 0) FROM contributions WHERE group_id = ?",
         (group_id,),
@@ -531,13 +604,14 @@ def group_page(group_id):
         round_number=round_number,
         next_member=next_member,
         pot=pot,
+        waiting=waiting,
         payouts=payouts,
         disputes=disputes,
         total_in=total_in,
         total_out=total_out,
         per_member=per_member,
         is_admin=is_admin,
-        today=date.today().isoformat(),
+        today=today.isoformat(),
     )
 
 
@@ -547,6 +621,7 @@ def add_member(group_id):
     if "user_id" not in session:
         return redirect("/login")
 
+    back = "/groups/" + str(group_id)
     conn = sqlite3.connect(DB_NAME)
 
     # business rule: only the admin of THIS group can add members
@@ -556,7 +631,7 @@ def add_member(group_id):
     ).fetchone()
     if group is None:
         conn.close()
-        return "Only the admin of this group can add members."
+        return message("Only the admin of this group can add members.", "/dashboard", 403)
 
     # I look for a member account with the email the admin typed
     email = request.form["email"].strip().lower()
@@ -565,7 +640,7 @@ def add_member(group_id):
     ).fetchone()
     if user is None:
         conn.close()
-        return "No member account found with this email. Ask them to register as a Member first."
+        return message("No member account found with this email. Ask them to register as a Member first.", back, 404)
 
     # I check that this person is not already in the group
     already = conn.execute(
@@ -574,7 +649,7 @@ def add_member(group_id):
     ).fetchone()
     if already:
         conn.close()
-        return "This person is already in the group."
+        return message("This person is already in the group.", back, 409)
 
     # the new member gets the next join order: 1, 2, 3...
     next_order = conn.execute(
@@ -590,7 +665,7 @@ def add_member(group_id):
     conn.close()
 
     # I send the admin back to the group page, where the new member shows in the list
-    return redirect("/groups/" + str(group_id))
+    return redirect(back)
 
 
 # this runs when the admin clicks "Remove" next to a member
@@ -608,7 +683,7 @@ def remove_member(group_id, user_id):
     ).fetchone()
     if group is None:
         conn.close()
-        return "Only the admin of this group can remove members."
+        return message("Only the admin of this group can remove members.", "/dashboard", 403)
 
     # I delete only this person's membership, their account stays and they can be in other groups
     # the other members keep their join order, I do not renumber them
@@ -628,6 +703,7 @@ def record_contribution(group_id):
     if "user_id" not in session:
         return redirect("/login")
 
+    back = "/groups/" + str(group_id)
     conn = sqlite3.connect(DB_NAME)
 
     # business rule: only the admin of THIS group can record contributions
@@ -637,7 +713,7 @@ def record_contribution(group_id):
     ).fetchone()
     if group is None:
         conn.close()
-        return "Only the admin of this group can record contributions."
+        return message("Only the admin of this group can record contributions.", "/dashboard", 403)
 
     # I take what the admin typed in the form and check it
     payment_date = request.form["payment_date"]
@@ -646,13 +722,15 @@ def record_contribution(group_id):
         amount = float(request.form["amount"])
     except ValueError:
         conn.close()
-        return "Please choose a member and enter the amount as a number."
+        return message("Please choose a member and enter the amount as a number.", back)
     if amount <= 0:
         conn.close()
-        return "Contribution amount must be more than 0. Please enter an amount."
-    if payment_date == "":
+        return message("Contribution amount must be more than 0. Please enter an amount.", back)
+    try:
+        date.fromisoformat(payment_date)
+    except ValueError:
         conn.close()
-        return "Please pick the payment date."
+        return message("Please pick the payment date.", back)
 
     # the person must really be a member of this group
     is_member = conn.execute(
@@ -661,7 +739,7 @@ def record_contribution(group_id):
     ).fetchone()
     if is_member is None:
         conn.close()
-        return "This person is not a member of the group."
+        return message("This person is not a member of the group.", back)
 
     # I save the contribution with the status Recorded
     conn.execute(
@@ -671,7 +749,7 @@ def record_contribution(group_id):
     conn.commit()
     conn.close()
 
-    return redirect("/groups/" + str(group_id))
+    return redirect(back)
 
 
 # this runs when the admin clicks "Record payout"
@@ -680,6 +758,7 @@ def record_payout(group_id):
     if "user_id" not in session:
         return redirect("/login")
 
+    back = "/groups/" + str(group_id)
     conn = sqlite3.connect(DB_NAME)
 
     # business rule: only the admin of THIS group can record a payout
@@ -689,16 +768,22 @@ def record_payout(group_id):
     ).fetchone()
     if group is None:
         conn.close()
-        return "Only the admin of this group can record a payout."
+        return message("Only the admin of this group can record a payout.", "/dashboard", 403)
 
     # the app decides who gets the payout, the admin cannot choose (business rule)
     round_number, next_member, pot = next_turn(conn, group_id)
     if next_member is None:
         conn.close()
-        return "Add members to the group first."
+        return message("Add members to the group first.", back)
+
+    # new: the payout waits until every member has paid for this round
+    waiting = unpaid_members(conn, group_id, round_number)
+    if len(waiting) > 0:
+        conn.close()
+        return message("Not everybody has paid for this round yet. Waiting for: " + ", ".join(waiting) + ".", back)
     if pot <= 0:
         conn.close()
-        return "There is no money in the pot yet. Record contributions first."
+        return message("There is no money in the pot yet. Record contributions first.", back)
 
     # the person who is next receives the whole pot
     conn.execute(
@@ -708,7 +793,7 @@ def record_payout(group_id):
     conn.commit()
     conn.close()
 
-    return redirect("/groups/" + str(group_id))
+    return redirect(back)
 
 
 # this runs when a member clicks "Flag" next to a contribution
@@ -717,6 +802,7 @@ def flag_contribution(group_id, contribution_id):
     if "user_id" not in session:
         return redirect("/login")
 
+    back = "/groups/" + str(group_id)
     conn = sqlite3.connect(DB_NAME)
 
     # only a member of THIS group can flag a record (the admin resolves disputes, not flags them)
@@ -726,7 +812,7 @@ def flag_contribution(group_id, contribution_id):
     ).fetchone()
     if is_member is None:
         conn.close()
-        return "Only a member of this group can flag a record."
+        return message("Only a member of this group can flag a record.", "/dashboard", 403)
 
     # the contribution must belong to this group
     contribution = conn.execute(
@@ -735,19 +821,19 @@ def flag_contribution(group_id, contribution_id):
     ).fetchone()
     if contribution is None:
         conn.close()
-        return "This record does not exist."
+        return message("This record does not exist.", back, 404)
     if contribution[0] == "Flagged":
         conn.close()
-        return "This record is already flagged and waiting for the admin."
+        return message("This record is already flagged and waiting for the admin.", back, 409)
 
     # the member must say why they think the record is wrong
     reason = request.form["reason"].strip()
     if reason == "":
         conn.close()
-        return "Please write why you think this record is wrong."
+        return message("Please write why you think this record is wrong.", back)
     if len(reason) > 300:
         conn.close()
-        return "The reason is too long. Please use 300 characters or less."
+        return message("The reason is too long. Please use 300 characters or less.", back)
 
     # I save the dispute and I change the status of the contribution to Flagged
     conn.execute(
@@ -761,7 +847,7 @@ def flag_contribution(group_id, contribution_id):
     conn.commit()
     conn.close()
 
-    return redirect("/groups/" + str(group_id))
+    return redirect(back)
 
 
 # this runs when the admin clicks "Resolve" on a dispute
@@ -770,6 +856,7 @@ def resolve_dispute(group_id, dispute_id):
     if "user_id" not in session:
         return redirect("/login")
 
+    back = "/groups/" + str(group_id)
     conn = sqlite3.connect(DB_NAME)
 
     # business rule: only the admin of THIS group can resolve a dispute
@@ -779,7 +866,7 @@ def resolve_dispute(group_id, dispute_id):
     ).fetchone()
     if group is None:
         conn.close()
-        return "Only the admin of this group can resolve a dispute."
+        return message("Only the admin of this group can resolve a dispute.", "/dashboard", 403)
 
     # the dispute must belong to this group and still be open
     dispute = conn.execute(
@@ -788,20 +875,20 @@ def resolve_dispute(group_id, dispute_id):
     ).fetchone()
     if dispute is None:
         conn.close()
-        return "This dispute does not exist."
+        return message("This dispute does not exist.", back, 404)
     if dispute[1] != "Open":
         conn.close()
-        return "This dispute is already resolved."
+        return message("This dispute is already resolved.", back, 409)
 
     # the admin must choose to keep or correct the record, and write a note the member can see
     decision = request.form["decision"]
     note = request.form["note"].strip()
     if decision not in ("keep", "correct"):
         conn.close()
-        return "Please choose to keep or correct the record."
+        return message("Please choose to keep or correct the record.", back)
     if note == "":
         conn.close()
-        return "Please write a resolution note, so the member understands the decision."
+        return message("Please write a resolution note, so the member understands the decision.", back)
 
     # I take the amount now saved in the record, I keep it as the old amount
     old_amount = conn.execute(
@@ -814,10 +901,10 @@ def resolve_dispute(group_id, dispute_id):
             new_amount = float(request.form["new_amount"])
         except ValueError:
             conn.close()
-            return "To correct the record, please enter the right amount as a number."
+            return message("To correct the record, please enter the right amount as a number.", back)
         if new_amount <= 0:
             conn.close()
-            return "The right amount must be more than 0."
+            return message("The right amount must be more than 0.", back)
         # I change the amount in the contribution
         conn.execute(
             "UPDATE contributions SET amount = ? WHERE contribution_id = ?",
@@ -837,7 +924,7 @@ def resolve_dispute(group_id, dispute_id):
     conn.commit()
     conn.close()
 
-    return redirect("/groups/" + str(group_id))
+    return redirect(back)
 
 
 # logout clears the session, so the app forgets the user

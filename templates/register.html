@@ -1,34 +1,27 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>NextPay - Create account</title>
-</head>
-<body>
-    <!-- this is my register page, I will add colors later, first I want it to work -->
-    <h1>Create your NextPay account</h1>
+{% extends "base.html" %}
+{% block title %}Create account{% endblock %}
+{% block content %}
+    <div class="card narrow">
+        <h1>Create your account</h1>
+        <form method="post" action="/register">
+            <label for="full_name">Full name</label>
+            <input type="text" id="full_name" name="full_name" autocomplete="name" required>
 
-    <!-- the form sends what the user types to /register when they click the button -->
-    <form method="post" action="/register">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" autocomplete="email" required>
 
-        <label for="full_name">Full name</label><br>
-        <input type="text" id="full_name" name="full_name" required><br><br>
+            <label for="password">Password (8 or more characters)</label>
+            <input type="password" id="password" name="password" minlength="8" autocomplete="new-password" required>
 
-        <label for="email">Email</label><br>
-        <input type="email" id="email" name="email" required><br><br>
+            <!-- the role decides if the user is a GroupAdmin or a GroupMember -->
+            <label for="role">I am a</label>
+            <select id="role" name="role">
+                <option value="member">Member (I pay into a group)</option>
+                <option value="admin">Admin (I run a group)</option>
+            </select>
 
-        <label for="password">Password (8 or more characters)</label><br>
-        <input type="password" id="password" name="password" minlength="8" required><br><br>
-
-        <!-- the role decides if the user is a GroupAdmin or a GroupMember -->
-        <label for="role">I am a</label><br>
-        <select id="role" name="role">
-            <option value="member">Member (I pay into a group)</option>
-            <option value="admin">Admin (I run a group)</option>
-        </select><br><br>
-
-        <button type="submit">Create account</button>
-    </form>
-</body>
-</html>
+            <button class="wide" type="submit">Create account</button>
+        </form>
+        <p>Already have an account? <a href="/login">Log in</a></p>
+    </div>
+{% endblock %}

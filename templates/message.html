@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Message{% endblock %}
+{% block content %}
+    <!-- this page shows errors in plain words, with a button to go back -->
+    <div class="card narrow">
+        <div class="alert error" role="alert">{{ text }}</div>
+        <a class="btn wide" href="{{ back }}">Go back</a>
+    </div>
+{% endblock %}

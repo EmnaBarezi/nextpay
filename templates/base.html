@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}NextPay{% endblock %} - NextPay</title>
+    <!-- the styles are in one file, so every page looks the same -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- the top bar is the same on every page -->
+    <header class="topbar">
+        <div class="bar">
+            <a class="brand" href="/">NextPay</a>
+            {% if session.get('user_id') %}
+                <div class="who">
+                    <span>{{ session['name'] }}</span>
+                    <a href="/logout">Log out</a>
+                </div>
+            {% endif %}
+        </div>
+    </header>
+
+    <main>
+        <!-- each page puts its own content here -->
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

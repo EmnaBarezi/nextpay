@@ -1,0 +1,109 @@
+/* NextPay styles, plain CSS written by hand, no framework */
+/* colors: deep teal for buttons and header, soft teal-white for the page, red only for errors, green only for success */
+:root {
+    --teal: #0f5c63;
+    --ink: #0a3d42;
+    --soft: #e8f3f3;
+    --line: #c9dddd;
+    --muted: #4d6f72;
+    --red: #b3322a;
+    --green: #2e7d4f;
+}
+
+* { box-sizing: border-box; }
+
+/* big readable text, because many users have basic phones */
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--soft);
+}
+
+.topbar { background: var(--teal); color: #fff; }
+.bar {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 0.9rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+.brand { font-weight: 700; font-size: 1.4rem; color: #fff; text-decoration: none; letter-spacing: -0.02em; }
+.who { font-size: 0.9rem; display: flex; gap: 1rem; align-items: center; }
+.who a { color: #fff; font-weight: 600; }
+
+main { max-width: 46rem; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.6rem; margin: 0.5rem 0 1rem; }
+h2 { font-size: 1.2rem; margin: 0 0 0.75rem; }
+a { color: var(--teal); }
+
+.card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.narrow { max-width: 26rem; margin: 1.5rem auto; }
+
+label { display: block; font-weight: 600; margin: 0.8rem 0 0.25rem; }
+input, select {
+    width: 100%;
+    font: inherit;
+    padding: 0.7rem;
+    border: 2px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+}
+input:focus, select:focus, button:focus, a:focus { outline: 3px solid var(--teal); outline-offset: 2px; }
+
+/* large buttons, easy to touch */
+.btn, button {
+    font: inherit;
+    font-weight: 600;
+    min-height: 48px;
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    border: 2px solid var(--teal);
+    background: var(--teal);
+    color: #fff;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+}
+.btn.plain, button.plain { background: #fff; color: var(--teal); }
+button.danger { background: #fff; border-color: var(--red); color: var(--red); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.wide { width: 100%; margin-top: 1rem; text-align: center; }
+
+.alert { background: #fff; padding: 0.8rem 1rem; border-radius: 8px; border-left: 6px solid var(--teal); margin-bottom: 1rem; }
+.alert.error { border-left-color: var(--red); }
+
+.row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+}
+.row:last-child { border-bottom: none; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+.empty { color: var(--muted); margin: 0; }
+
+.badge { display: inline-block; padding: 0.1rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; background: var(--soft); color: var(--ink); }
+.badge.flagged { background: #f6dcda; color: var(--red); }
+.badge.confirmed { background: #d9eddf; color: var(--green); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+.stat { background: var(--soft); border-radius: 8px; padding: 0.75rem; }
+.stat b { display: block; font-size: 1.25rem; }
+
+form.inline { display: inline; }
+.flagform { display: flex; gap: 0.5rem; width: 100%; }
+.flagform input { flex: 1; }
+.note { background: var(--soft); border-radius: 8px; padding: 0.6rem 0.8rem; margin-top: 0.4rem; }
+
+@media (max-width: 30rem) {
+    .flagform { flex-direction: column; }
+}
