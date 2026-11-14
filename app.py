@@ -1,5 +1,5 @@
 # NextPay - app for tontine groups in Burundi
-# Step 29: members can flag a contribution and the admin can resolve the dispute
+# Step 30: the group page now has a report with the totals
 
 import calendar
 import os
@@ -58,7 +58,7 @@ def init_db():
         )
     """)
 
-    # new: the memberships table, from the Membership class in my class diagram
+    # the memberships table, from the Membership class in my class diagram
     # one row = one member inside one group, so the same member can be in many groups
     # the PRIMARY KEY on (group_id, user_id) stops me from adding the same person twice
     conn.execute("""
@@ -74,9 +74,9 @@ def init_db():
         )
     """)
 
-    # new: the contributions table, from the Contribution class in my class diagram
+    # the contributions table, from the Contribution class in my class diagram
     # one row = one payment made by one member of one group
-    # status starts as Recorded, later it will change to Confirmed or Flagged
+    # status starts as Recorded, then it can become Flagged and then Confirmed
     conn.execute("""
         CREATE TABLE IF NOT EXISTS contributions (
             contribution_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,7 +89,7 @@ def init_db():
         )
     """)
 
-    # new: the payouts table, from the Payout class in my class diagram
+    # the payouts table, from the Payout class in my class diagram
     # one row = the money one member received in one round
     conn.execute("""
         CREATE TABLE IF NOT EXISTS payouts (
@@ -104,7 +104,7 @@ def init_db():
         )
     """)
 
-    # new: the disputes table, from the Dispute class in my class diagram
+    # the disputes table, from the Dispute class in my class diagram
     # one row = one complaint about one contribution
     # old_amount and new_amount keep a record of every correction (NFR 4)
     conn.execute("""
@@ -128,7 +128,7 @@ def init_db():
     conn.close()
 
 
-# new: this adds a number of months to a date, and it can also go backwards with a negative number
+# this adds a number of months to a date, and it can also go backwards with a negative number
 # if the day does not exist in that month (for example the 31st), I use the last day of the month
 def add_months(d, months):
     year = d.year + (d.month - 1 + months) // 12
@@ -137,7 +137,7 @@ def add_months(d, months):
     return date(year, month, day)
 
 
-# new: this finds the next due date of a group, and the due date before it
+# this finds the next due date of a group, and the due date before it
 # the group starts on start_date and then repeats every week, every 2 weeks or every month
 def next_due_date(start_date, frequency, today):
     start = date.fromisoformat(start_date)
@@ -305,7 +305,7 @@ def dashboard():
         (session["user_id"], session["user_id"]),
     ).fetchall()
 
-    # new: reminders, I look at each group where the user is a member
+    # reminders, I look at each group where the user is a member
     reminders = ""
     today = date.today()
     for g in groups:
@@ -413,7 +413,7 @@ def create_group():
     return redirect("/dashboard")
 
 
-# new: this shows the page of one group with its members
+# this shows the page of one group with its members
 @app.get("/groups/<int:group_id>")
 def group_page(group_id):
     if "user_id" not in session:
@@ -442,7 +442,7 @@ def group_page(group_id):
         conn.close()
         return "You cannot open this group."
 
-    # I get the members in the order they joined, this order will be used for the payouts later
+    # I get the members in the order they joined, this order will be used for the payouts
     members = conn.execute(
         """
         SELECT m.join_order, u.full_name, u.email, u.user_id
@@ -454,7 +454,8 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # new: I get the contributions of this group, the newest first
+    # I get the contributions of this group, the newest first
+    # I also take the contribution_id, because the Flag button needs it
     contributions = conn.execute(
         """
         SELECT c.contribution_id, c.payment_date, u.full_name, c.amount, c.status
@@ -466,7 +467,7 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # new: whose turn it is, and the payouts that were already given
+    # whose turn it is, and the payouts that were already given
     round_number, next_member, pot = next_turn(conn, group_id)
     payouts = conn.execute(
         """
@@ -479,7 +480,7 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # new: the disputes of this group, the newest first
+    # the disputes of this group, the newest first
     # date(..., '+3 days') gives the day the admin should resolve it by
     disputes = conn.execute(
         """
@@ -492,6 +493,30 @@ def group_page(group_id):
         JOIN users ru ON ru.user_id = d.raised_by
         WHERE d.group_id = ?
         ORDER BY d.dispute_id DESC
+        """,
+        (group_id,),
+    ).fetchall()
+
+    # new: the report of the group, total saved, total paid out and what each member paid (FR 9.1)
+    total_in = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM contributions WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()[0]
+    total_out = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM payouts WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()[0]
+
+    # LEFT JOIN keeps members who did not pay yet, they show with 0
+    per_member = conn.execute(
+        """
+        SELECT u.full_name, COALESCE(SUM(c.amount), 0), COUNT(c.contribution_id)
+        FROM memberships m
+        JOIN users u ON u.user_id = m.user_id
+        LEFT JOIN contributions c ON c.user_id = m.user_id AND c.group_id = m.group_id
+        WHERE m.group_id = ?
+        GROUP BY m.user_id
+        ORDER BY m.join_order
         """,
         (group_id,),
     ).fetchall()
@@ -508,12 +533,15 @@ def group_page(group_id):
         pot=pot,
         payouts=payouts,
         disputes=disputes,
+        total_in=total_in,
+        total_out=total_out,
+        per_member=per_member,
         is_admin=is_admin,
         today=date.today().isoformat(),
     )
 
 
-# new: this runs when the admin clicks "Add member"
+# this runs when the admin clicks "Add member"
 @app.post("/groups/<int:group_id>/members")
 def add_member(group_id):
     if "user_id" not in session:
@@ -565,7 +593,7 @@ def add_member(group_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when the admin clicks "Remove" next to a member
+# this runs when the admin clicks "Remove" next to a member
 @app.post("/groups/<int:group_id>/members/<int:user_id>/remove")
 def remove_member(group_id, user_id):
     if "user_id" not in session:
@@ -594,7 +622,7 @@ def remove_member(group_id, user_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when the admin clicks "Record contribution"
+# this runs when the admin clicks "Record contribution"
 @app.post("/groups/<int:group_id>/contributions")
 def record_contribution(group_id):
     if "user_id" not in session:
@@ -646,7 +674,7 @@ def record_contribution(group_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when the admin clicks "Record payout"
+# this runs when the admin clicks "Record payout"
 @app.post("/groups/<int:group_id>/payouts")
 def record_payout(group_id):
     if "user_id" not in session:
@@ -683,7 +711,7 @@ def record_payout(group_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when a member clicks "Flag" next to a contribution
+# this runs when a member clicks "Flag" next to a contribution
 @app.post("/groups/<int:group_id>/contributions/<int:contribution_id>/flag")
 def flag_contribution(group_id, contribution_id):
     if "user_id" not in session:
@@ -736,7 +764,7 @@ def flag_contribution(group_id, contribution_id):
     return redirect("/groups/" + str(group_id))
 
 
-# new: this runs when the admin clicks "Resolve" on a dispute
+# this runs when the admin clicks "Resolve" on a dispute
 @app.post("/groups/<int:group_id>/disputes/<int:dispute_id>/resolve")
 def resolve_dispute(group_id, dispute_id):
     if "user_id" not in session:

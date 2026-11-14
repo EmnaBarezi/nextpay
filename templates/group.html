@@ -43,7 +43,7 @@
     {% endif %}
     {% for c in contributions %}
         <p>{{ c[1] }}: {{ c[2] }} paid {{ c[3] }} BIF ({{ c[4] }})
-        <!-- new: a member can flag a record that looks wrong, and must say why -->
+        <!-- a member can flag a record that looks wrong, and must say why -->
         {% if not is_admin and c[4] != 'Flagged' %}
             <form method="post" action="/groups/{{ group[0] }}/contributions/{{ c[0] }}/flag" style="display:inline">
                 <input type="text" name="reason" placeholder="Why is this wrong?" maxlength="300" required>
@@ -74,7 +74,7 @@
         </form>
     {% endif %}
 
-    <!-- new: the disputes, every member can see them and the notes of the admin -->
+    <!-- the disputes, every member can see them and the notes of the admin -->
     <h2>Disputes</h2>
     {% if disputes|length == 0 %}
         <p>No disputes.</p>
@@ -104,6 +104,19 @@
                 <button type="submit">Resolve</button>
             </form>
         {% endif %}
+    {% endfor %}
+
+    <!-- new: the report, every member can see the totals of the group -->
+    <h2>Report</h2>
+    <p>Total saved: {{ "%.0f"|format(total_in) }} BIF</p>
+    <p>Total paid out: {{ "%.0f"|format(total_out) }} BIF</p>
+    <p>Money still in the pot: {{ "%.0f"|format(total_in - total_out) }} BIF</p>
+    <h3>What each member paid</h3>
+    {% if per_member|length == 0 %}
+        <p>No members yet.</p>
+    {% endif %}
+    {% for r in per_member %}
+        <p>{{ r[0] }}: {{ "%.0f"|format(r[1]) }} BIF in {{ r[2] }} payment(s)</p>
     {% endfor %}
 
     <!-- whose turn it is to receive the payout, the app works it out from the join order -->
