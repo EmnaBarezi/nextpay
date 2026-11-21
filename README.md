@@ -93,3 +93,51 @@ Two things follow from this design:
 
 - **The admin is trusted inside their own group.** The admin records the payments. To keep this honest, every member can flag a record. The admin must then keep or correct it and write a note that everybody can read, and the old and new amounts are saved.
 - **The role belongs to the account, not to the group.** An admin cannot be added as a member of a group, and a member cannot create a group. This is explained in the limitations at the end of this document.
+
+## Technology
+
+| Part | What is used | Why |
+|---|---|---|
+| Language | Python 3 | Simple and readable. |
+| Web framework | Flask | A small standard framework: it connects web addresses to Python functions. |
+| Database | SQLite, through Python's built-in `sqlite3` module | A relational database stored in one file, with the SQL written by hand. |
+| Pages | HTML templates (Jinja, which comes with Flask) | Each page is an HTML file with blanks that Flask fills in with data. |
+| Styling | Plain CSS, written by hand | No CSS framework. One stylesheet for the whole app. |
+| Passwords | Werkzeug (installed with Flask) | Passwords are saved as hashes, never as plain text. |
+
+NextPay uses no external services and no outside APIs. All the data is entered by the admin and the members and saved in its own database.
+
+## Project structure
+
+```
+nextpay/
+├── app.py              The whole backend: database tables, rules and page addresses (routes)
+├── requirements.txt    The Python packages needed to run the app
+├── README.md           This file
+├── .gitignore          Files that Git must not upload (the database and the secret key)
+├── static/
+│   └── style.css       All the styles of the app
+└── templates/          The HTML pages
+    ├── base.html           The top bar and layout shared by every page
+    ├── login.html          Log in
+    ├── register.html       Create an account
+    ├── dashboard.html      The user's groups and reminders
+    ├── create_group.html   The form to create a group
+    ├── group.html          One group: payout, members, contributions, disputes, report
+    └── message.html        The page that shows an error, with a Go back button
+```
+
+Two more files are created automatically the first time the app runs, and they are not uploaded to GitHub:
+
+- `nextpay.db`: the SQLite database with all the data.
+- `.secret_key`: a random key that keeps the login sessions safe.
+
+## How a request works
+
+1. The browser asks for a page, for example `/groups/1`.
+2. Flask finds the function in `app.py` for that address. The function checks who is logged in and whether that person is allowed to see the page.
+3. The function reads the data it needs from the database with SQL, and hands it to an HTML template.
+4. The template turns the data into the page the user sees.
+5. When the user submits a form, for example "Record contribution", the data goes to another function. It checks the rules, saves the data and sends the user back to the page.
+
+The rules about who can do what are checked in `app.py` on the server, not only in the pages. Hiding a button is not enough, because someone could send the request without using the page.
