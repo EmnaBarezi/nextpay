@@ -67,3 +67,29 @@ Two things follow from this design:
 - Only the admin records a payment: who paid, how much and on which date.
 - Every member of the group sees the same history of payments. This is what removes arguments about who paid.
 - Each payment has a status: **Recorded** when it is created, **Flagged** when a member disputes it, and **Confirmed** after the admin resolves the dispute.
+
+### The pot and the payout
+- **The pot** is the money saved minus the money already paid out. It goes up when members pay, and it goes down when a payout is made.
+- **The payout order** follows the join order. The first payout goes to member 1, the second to member 2, and so on. After the last member, a new cycle starts from member 1.
+- **The admin cannot choose** who is paid. The app decides, and the admin only confirms the payout.
+- **A payout is blocked until every member has paid for that round.** In round 1 every member needs at least 1 recorded payment, in round 2 at least 2, and so on. The page shows who the app is still waiting for, and the **Record payout** button stays disabled until everyone has paid.
+- The member who is next receives the whole pot.
+
+### Reminders
+- A member sees a reminder on their dashboard from 2 days before a payment is due, until they have paid.
+- The due dates come from the group's first date and schedule. For monthly groups, a date that does not exist in a month (like the 31st) moves to the last day of that month.
+- Admins do not get reminders, because they do not pay into the group.
+
+### Disputes
+- A member who thinks a payment record is wrong can **flag** it. They must write a reason.
+- The admin then **keeps** the record or **corrects** the amount, and must write a note. Everybody in the group can read the reason and the note.
+- When the admin corrects a record, the app saves both the old and the new amount, so every correction leaves a trace.
+- The admin should resolve a dispute within 3 days. The page shows the deadline.
+
+### Reliability score
+- Each member has a score from 0 to 100: the payments made on time, divided by the payments due, multiplied by 100.
+- A payment is **on time** if it is made after the previous due date and on or before the current due date.
+- Only the due dates after the member joined are counted. Before the first due date, the page says "No payment due yet".
+
+### Report
+- The group page shows the total saved, the total paid out, the money still in the pot, and how much each member has paid.
