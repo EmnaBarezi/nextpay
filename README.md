@@ -56,3 +56,14 @@ Two things follow from this design:
 
 - **The admin is trusted inside their own group.** The admin records the payments. To keep this honest, every member can flag a record. The admin must then keep or correct it and write a note that everybody can read, and the old and new amounts are saved.
 - **The role belongs to the account, not to the group.** An admin cannot be added as a member of a group, and a member cannot create a group. This is explained in the limitations at the end of this document.
+
+### Groups and members
+- An admin creates a group with a name, the amount each member pays, a schedule (weekly, every 2 weeks or monthly) and the date of the first contribution.
+- The admin adds a member by typing the email they registered with. The person must have registered as a member first.
+- Each member gets a **join order** (1, 2, 3 and so on). The join order decides who is paid first.
+- The admin can remove a member. One person can belong to several groups.
+
+### Contributions and the shared history
+- Only the admin records a payment: who paid, how much and on which date.
+- Every member of the group sees the same history of payments. This is what removes arguments about who paid.
+- Each payment has a status: **Recorded** when it is created, **Flagged** when a member disputes it, and **Confirmed** after the admin resolves the dispute.
