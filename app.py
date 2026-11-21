@@ -9,20 +9,25 @@ from datetime import date, timedelta
 from flask import Flask, render_template, request, session, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# the folder where app.py is, so the files below are always found, wherever the app is started from
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # this creates my app, everything else will be added to it later
 app = Flask(__name__)
 
 # the session needs a secret key so nobody can fake a login
 # I save it in a file called .secret_key, which is in my .gitignore so it never goes to GitHub
 # if the file does not exist yet, I make a new random key
-if not os.path.exists(".secret_key"):
-    with open(".secret_key", "w") as f:
+
+KEY_FILE = os.path.join(BASE_DIR, ".secret_key")
+if not os.path.exists(KEY_FILE):
+    with open(KEY_FILE, "w") as f:
         f.write(secrets.token_hex(32))
-with open(".secret_key") as f:
+with open(KEY_FILE) as f:
     app.secret_key = f.read()
 
 # the name of the file where all my data will be saved
-DB_NAME = "nextpay.db"
+DB_NAME = os.path.join(BASE_DIR, "nextpay.db")
 
 # the only schedules I allow for a group
 FREQUENCIES = ["weekly", "every 2 weeks", "monthly"]
