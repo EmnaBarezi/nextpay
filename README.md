@@ -37,6 +37,7 @@ NextPay is deployed, so you can use it without installing anything:
 It runs on PythonAnywhere's free plan, with a secure HTTPS connection. Create an account to try it. To test two users at the same time, open a second private (incognito) window for the second person.
 
 The live site has its own database, separate from the one on your own computer. Accounts created on one do not exist on the other.
+ 
 ## Run it on your own computer
 
 ### What you need
@@ -58,6 +59,50 @@ cd nextpay
 ```
 python -m venv venv
 ```
+
+**3. Turn the virtual environment on.**
+
+- On Windows (PowerShell):
+  ```
+  venv\Scripts\activate
+  ```
+  If Windows says that running scripts is disabled, run this once and try again:
+  ```
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+  ```
+- On macOS or Linux:
+  ```
+  source venv/bin/activate
+  ```
+
+When it works, `(venv)` appears at the start of the line in your terminal.
+
+**4. Install the packages**
+
+```
+python -m pip install -r requirements.txt
+```
+
+**5. Start the app**
+
+```
+python app.py
+```
+
+**6. Open it in your browser**
+
+Go to `http://127.0.0.1:5000`. You should see the NextPay login page. Click **Create one here** to make the first account.
+
+### Good to know
+
+- **No environment variables are needed**, and there is no `.env` file. The only secret, the key that protects login sessions, is created automatically in a file called `.secret_key` the first time the app runs.
+- **The database is created automatically.** The first run creates a file called `nextpay.db` next to `app.py`. Both files are listed in `.gitignore`, so they are never uploaded to GitHub.
+- **To stop the app,** click in the terminal and press **Ctrl + C**.
+- **To start it again later,** turn the virtual environment on (step 3) and run `python app.py`.
+- **To start with empty data,** stop the app and delete `nextpay.db`. It is created again, empty, on the next run.
+- **If `python` is not found on macOS or Linux,** use `python3` instead.
+- **If `pip` is not found,** use `python -m pip`, as in step 4.
+
 ## Features
 
 ### Accounts
