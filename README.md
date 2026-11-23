@@ -37,6 +37,27 @@ NextPay is deployed, so you can use it without installing anything:
 It runs on PythonAnywhere's free plan, with a secure HTTPS connection. Create an account to try it. To test two users at the same time, open a second private (incognito) window for the second person.
 
 The live site has its own database, separate from the one on your own computer. Accounts created on one do not exist on the other.
+## Run it on your own computer
+
+### What you need
+
+- **Python 3.9 or newer.** Check with `python --version`.
+- **Git.** Check with `git --version`.
+
+### Steps
+
+**1. Download the code**
+
+```
+git clone https://github.com/EmnaBarezi/nextpay.git
+cd nextpay
+```
+
+**2. Create a virtual environment.** This is a private folder for the packages this project needs.
+
+```
+python -m venv venv
+```
 ## Features
 
 ### Accounts
