@@ -28,6 +28,15 @@ NextPay is made to complement tontines, not replace them. It does not move any m
 
 NextPay is a working prototype built for a software engineering course at African Leadership University. It is written in Python (Flask) with a SQLite database.
 
+## Live version
+
+NextPay is deployed, so you can use it without installing anything:
+
+**https://emna6.pythonanywhere.com**
+
+It runs on PythonAnywhere's free plan, with a secure HTTPS connection. Create an account to try it. To test two users at the same time, open a second private (incognito) window for the second person.
+
+The live site has its own database, separate from the one on your own computer. Accounts created on one do not exist on the other.
 ## Features
 
 ### Accounts
