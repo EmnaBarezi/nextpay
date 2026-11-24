@@ -1,5 +1,5 @@
 # NextPay - app for tontine groups in Burundi
-# Step 31: nicer pages, payout rule and reliability score
+# Step 32: payments become Confirmed when the payout closes the round
 
 import calendar
 import os
@@ -18,7 +18,6 @@ app = Flask(__name__)
 # the session needs a secret key so nobody can fake a login
 # I save it in a file called .secret_key, which is in my .gitignore so it never goes to GitHub
 # if the file does not exist yet, I make a new random key
-
 KEY_FILE = os.path.join(BASE_DIR, ".secret_key")
 if not os.path.exists(KEY_FILE):
     with open(KEY_FILE, "w") as f:
@@ -33,7 +32,7 @@ DB_NAME = os.path.join(BASE_DIR, "nextpay.db")
 FREQUENCIES = ["weekly", "every 2 weeks", "monthly"]
 
 
-# new: one function to show an error on a proper page, with a button to go back
+# one function to show an error on a proper page, with a button to go back
 # before, I returned plain text, which looked like a blank page
 def message(text, back="/dashboard", status=400):
     return render_template("message.html", text=text, back=back), status
@@ -173,7 +172,7 @@ def next_due_date(start_date, frequency, today):
     return due, due - timedelta(days=step)
 
 
-# new: the reliability score of one member in one group (FR 8.1)
+# the reliability score of one member in one group (FR 8.1)
 # score = contributions paid on time / contributions due x 100
 # a contribution is on time when it is paid after the previous due date and on or before this due date
 # I only count the due dates since the member joined the group
@@ -215,7 +214,7 @@ def reliability(conn, group_id, user_id, start_date, frequency, joined_at, today
     return round(on_time * 100 / len(periods))
 
 
-# new: the names of the members who did not pay yet for this round
+# the names of the members who did not pay yet for this round
 # in round 1 everybody needs at least 1 contribution, in round 2 at least 2, and so on
 def unpaid_members(conn, group_id, round_number):
     rows = conn.execute(
@@ -272,7 +271,7 @@ def next_turn(conn, group_id):
     return round_number, next_member, total_in - paid_out
 
 
-# new: the home page sends the user to the right place
+# the home page sends the user to the right place
 @app.get("/")
 def home():
     if "user_id" in session:
@@ -324,7 +323,7 @@ def register():
     finally:
         conn.close()
 
-    # new: I log the user in straight away and send them to the dashboard
+    # I log the user in straight away and send them to the dashboard
     session.clear()
     session["user_id"] = new_id
     session["name"] = full_name
@@ -466,7 +465,7 @@ def create_group():
         first_date = date.fromisoformat(start_date)
     except ValueError:
         return message("Please pick the first contribution date.", "/groups/new")
-    # new: a date far in the past would make the reliability score slow to work out
+    # a date far in the past would make the reliability score slow to work out
     if first_date < date(2020, 1, 1):
         return message("The first contribution date must be in 2020 or later.", "/groups/new")
 
@@ -524,7 +523,7 @@ def group_page(group_id):
         (group_id,),
     ).fetchall()
 
-    # new: I add the reliability score of each member to the row
+    # I add the reliability score of each member to the row
     today = date.today()
     members = []
     for m in member_rows:
@@ -781,7 +780,7 @@ def record_payout(group_id):
         conn.close()
         return message("Add members to the group first.", back)
 
-    # new: the payout waits until every member has paid for this round
+    # the payout waits until every member has paid for this round
     waiting = unpaid_members(conn, group_id, round_number)
     if len(waiting) > 0:
         conn.close()
@@ -794,6 +793,13 @@ def record_payout(group_id):
     conn.execute(
         "INSERT INTO payouts (group_id, user_id, round_number, amount, payout_date) VALUES (?, ?, ?, ?, ?)",
         (group_id, next_member[0], round_number, pot, date.today().isoformat()),
+    )
+
+    # the round closes when the payout is recorded, so the payments that were only Recorded become Confirmed
+    # payments that are Flagged stay Flagged until the admin resolves the dispute
+    conn.execute(
+        "UPDATE contributions SET status = 'Confirmed' WHERE group_id = ? AND status = 'Recorded'",
+        (group_id,),
     )
     conn.commit()
     conn.close()
