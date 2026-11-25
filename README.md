@@ -2,6 +2,8 @@
 
 **A digital savings tool for tontine groups in Burundi.**
 
+**Try it now:** https://emna6.pythonanywhere.com
+
 ## What is NextPay?
 
 In Burundi, many people save in tontines. A tontine is a group of people who each pay the same amount on a regular schedule. In each round, the whole pot goes to one member, until every member has received it once.
@@ -22,11 +24,7 @@ NextPay is made to complement tontines, not replace them. It does not move any m
 ## Who uses it?
 
 - **Admin:** creates a group, adds and removes members, and records payments and payouts. The admin also resolves disputes.
-- **Member:** joins one or more groups, sees the shared history, and can flag a record that looks wrong.
-
-## Project status
-
-NextPay is a working prototype built for a software engineering course at African Leadership University. It is written in Python (Flask) with a SQLite database.
+- **Member:** is added to one or more groups by an admin, sees the shared history, and can flag a record that looks wrong.
 
 ## Live version
 
@@ -34,15 +32,28 @@ NextPay is deployed, so you can use it without installing anything:
 
 **https://emna6.pythonanywhere.com**
 
-It runs on PythonAnywhere's free plan, with a secure HTTPS connection. Create an account to try it. To test two users at the same time, open a second private (incognito) window for the second person.
+It runs on PythonAnywhere's free plan, with a secure HTTPS connection. The live app **starts with an empty database**, so create your own accounts to try it. The live site has its own database, separate from the one on your own computer.
 
-The live site has its own database, separate from the one on your own computer. Accounts created on one do not exist on the other.
- 
+### Quick tour: try every feature in about 10 minutes
+
+You need three people at the same time. Use your normal browser window for the admin, and two **private (incognito) windows** for the two members, because each window has its own login.
+
+1. **Create the admin.** Open the live link, click **Create one here**, and register: name `Admin`, email `admin@example.com`, a password of 8 or more characters, role **Admin**. You land on a dashboard that says "You have no groups yet".
+2. **Create two members.** In a private window, register `Anna` (`anna@example.com`, role **Member**). In a second private window, register `Bob` (`bob@example.com`, role **Member**). Each dashboard says "You are not in a group yet", because only an admin can add members.
+3. **Create a group.** As the admin, click **Create a group**. Use the name `Ubuntu Savers`, amount `10000`, **Weekly**, and the first date **tomorrow**. Click **Create group**.
+4. **Add the members.** Open the group. In **Members**, add `anna@example.com`, then `bob@example.com`. They appear as 1 and 2, which is the join order. **Next payout** says Round 1 goes to Anna.
+5. **Record the first payment.** In **Contributions**, choose Anna and click **Record contribution**. **Next payout** now says "Waiting for payment from: Bob", and the **Record payout** button is disabled. **Report** shows 10000 saved, 0 paid out and 10000 in the pot.
+6. **Record the second payment and the payout.** Record Bob's payment. The button turns on. Click **Record payout** and confirm. Anna receives 20000, both payments change from **Recorded** to **Confirmed**, the pot goes back to 0, and Round 2 is Bob's.
+7. **Flag a mistake.** As the admin, record another payment for Bob with a wrong amount, like `8000`. In Bob's window, open the group, write a reason next to that payment, such as `I paid 10000`, and click **Flag**. The payment becomes **Flagged**, and **Disputes** shows it as Open, with a resolve-by date 3 days later.
+8. **Resolve the dispute.** As the admin, in **Disputes**, choose **Correct the amount**, type `10000`, write a note, and click **Resolve**. The dispute shows the note and "Corrected from 8000 to 10000 BIF", and the payment is **Confirmed**. Everybody in the group can read this.
+9. **See a reminder.** Create a second group with the first date **tomorrow**, add Anna, and record nothing. Log in as Anna: her dashboard shows a reminder that her payment is due tomorrow. When the admin records her payment, the reminder disappears.
+10. **See a reliability score.** Create a group with the first date **today**, add Anna, and record her payment with today's date. In **Members**, Anna shows "Paid on time: 100%". Before the first due date, the page shows "No payment due yet".
+
 ## Run it on your own computer
 
 ### What you need
 
-- **Python 3.9 or newer.** Check with `python --version`.
+- **Python 3.9 or newer.** Check with `python --version`. It was tested on Python 3.12 and 3.14.
 - **Git.** Check with `git --version`.
 
 ### Steps
@@ -91,35 +102,42 @@ python app.py
 
 **6. Open it in your browser**
 
-Go to `http://127.0.0.1:5000`. You should see the NextPay login page. Click **Create one here** to make the first account.
+Go to `http://127.0.0.1:5000`. You should see the NextPay login page. Click **Create one here** to make the first account, then follow the Quick tour above.
+
+### Environment variables
+
+**None are needed.** There is no `.env` file. The only secret, the key that protects login sessions, is created automatically in a file called `.secret_key` the first time the app runs.
 
 ### Good to know
 
-- **No environment variables are needed**, and there is no `.env` file. The only secret, the key that protects login sessions, is created automatically in a file called `.secret_key` the first time the app runs.
-- **The database is created automatically.** The first run creates a file called `nextpay.db` next to `app.py`. Both files are listed in `.gitignore`, so they are never uploaded to GitHub.
+- **The database is created automatically.** The first run creates a file called `nextpay.db` next to `app.py`. Both `nextpay.db` and `.secret_key` are listed in `.gitignore`, so they are never uploaded to GitHub.
 - **To stop the app,** click in the terminal and press **Ctrl + C**.
 - **To start it again later,** turn the virtual environment on (step 3) and run `python app.py`.
 - **To start with empty data,** stop the app and delete `nextpay.db`. It is created again, empty, on the next run.
 - **If `python` is not found on macOS or Linux,** use `python3` instead.
 - **If `pip` is not found,** use `python -m pip`, as in step 4.
 
+## Testing the features that depend on the date
+
+Reminders and the reliability score depend on today's date. To see them, create groups with a first date of tomorrow (reminders) or today (reliability score), as in steps 9 and 10 of the Quick tour. To try other dates when running NextPay on your own computer, change your computer's date and reload the page.
+
 ## Features
 
 ### Accounts
-- A person registers with a name, an email and a password, and chooses a role: **admin** or **member**.
+- A person registers with a name, an email and a password of at least 8 characters, and chooses a role: **admin** or **member**.
 - Passwords are never stored as plain text. They are saved as a scrambled version called a hash.
 - After registering or logging in, the person lands on their dashboard. Pages that need a login send visitors to the login page.
 
 ### Groups and members
-- An admin creates a group with a name, the amount each member pays, a schedule (weekly, every 2 weeks or monthly) and the date of the first contribution.
-- The admin adds a member by typing the email they registered with. The person must have registered as a member first.
+- An admin creates a group with a name, the amount each member pays, a schedule (weekly, every 2 weeks or monthly) and the date of the first contribution. The amount is the same for every member and every round.
+- The admin adds a member by typing the email they registered with. The person must have registered as a member first. Members cannot join a group on their own.
 - Each member gets a **join order** (1, 2, 3 and so on). The join order decides who is paid first.
-- The admin can remove a member. One person can belong to several groups.
+- The admin can remove a member. One person can belong to several groups, if different admins add them.
 
 ### Contributions and the shared history
 - Only the admin records a payment: who paid, how much and on which date.
 - Every member of the group sees the same history of payments. This is what removes arguments about who paid.
-- Each payment has a status: **Recorded** when it is created, **Flagged** when a member disputes it, and **Confirmed** after the admin resolves the dispute.
+- Each payment has a status: **Recorded** when it is created, **Flagged** when a member disputes it, and **Confirmed** when the round closes (the admin records the payout) or when the admin resolves the dispute.
 
 ### The pot and the payout
 - **The pot** is the money saved minus the money already paid out. It goes up when members pay, and it goes down when a payout is made.
@@ -134,7 +152,7 @@ Go to `http://127.0.0.1:5000`. You should see the NextPay login page. Click **Cr
 - Admins do not get reminders, because they do not pay into the group.
 
 ### Disputes
-- A member who thinks a payment record is wrong can **flag** it. They must write a reason.
+- A member who thinks a payment record is wrong can **flag** it. They must write a reason. Only members can flag, not the admin.
 - The admin then **keeps** the record or **corrects** the amount, and must write a note. Everybody in the group can read the reason and the note.
 - When the admin corrects a record, the app saves both the old and the new amount, so every correction leaves a trace.
 - The admin should resolve a dispute within 3 days. The page shows the deadline.
@@ -164,11 +182,6 @@ In NextPay, an **admin is the organiser of a group**, like the person who keeps 
 | See the group page, history and report | Yes | Yes | No |
 | See payment reminders | No | Yes | No |
 
-Two things follow from this design:
-
-- **The admin is trusted inside their own group.** The admin records the payments. To keep this honest, every member can flag a record. The admin must then keep or correct it and write a note that everybody can read, and the old and new amounts are saved.
-- **The role belongs to the account, not to the group.** An admin cannot be added as a member of a group, and a member cannot create a group. This is explained in the limitations at the end of this document.
-
 ## Technology
 
 | Part | What is used | Why |
@@ -179,6 +192,7 @@ Two things follow from this design:
 | Pages | HTML templates (Jinja, which comes with Flask) | Each page is an HTML file with blanks that Flask fills in with data. |
 | Styling | Plain CSS, written by hand | No CSS framework. One stylesheet for the whole app. |
 | Passwords | Werkzeug (installed with Flask) | Passwords are saved as hashes, never as plain text. |
+| Hosting | PythonAnywhere (free plan) | Runs the live version over HTTPS. |
 
 NextPay uses no external services and no outside APIs. All the data is entered by the admin and the members and saved in its own database.
 
@@ -202,11 +216,6 @@ nextpay/
     └── message.html        The page that shows an error, with a Go back button
 ```
 
-Two more files are created automatically the first time the app runs, and they are not uploaded to GitHub:
-
-- `nextpay.db`: the SQLite database with all the data.
-- `.secret_key`: a random key that keeps the login sessions safe.
-
 ## How a request works
 
 1. The browser asks for a page, for example `/groups/1`.
@@ -216,3 +225,34 @@ Two more files are created automatically the first time the app runs, and they a
 5. When the user submits a form, for example "Record contribution", the data goes to another function. It checks the rules, saves the data and sends the user back to the page.
 
 The rules about who can do what are checked in `app.py` on the server, not only in the pages. Hiding a button is not enough, because someone could send the request without using the page.
+
+## Database
+
+The database is SQLite, in one file called `nextpay.db`. It has six tables. PK means primary key and FK means foreign key.
+
+| Table | Columns | What it stores |
+|---|---|---|
+| `users` | user_id (PK), full_name, email (unique), password_hash, role | Every account. |
+| `tontine_groups` | group_id (PK), name, amount_due, frequency, start_date, admin_id (FK to users) | Each group and the admin who runs it. |
+| `memberships` | group_id and user_id (together the PK, both FK), join_order, joined_at, reliability_score | Which member belongs to which group, and in what order they joined. |
+| `contributions` | contribution_id (PK), group_id and user_id (FK to memberships), amount, payment_date, status | Every payment. |
+| `payouts` | payout_id (PK), group_id (FK), user_id (FK), round_number, amount, payout_date | Every payout. |
+| `disputes` | dispute_id (PK), group_id (FK), contribution_id (FK), raised_by (FK to users), reason, status, resolution_note, old_amount, new_amount, created_at | Every flagged record and how the admin resolved it. |
+
+The tables are created automatically the first time the app runs.
+
+## Known limitations
+
+- **Testing:** there are no automated tests in this version. The app was tested by hand, following the Quick tour above.
+- **The role belongs to the account, not to the group.** An admin cannot be added as a member of a group, and a member cannot create a group. In a future version, one person could be the admin of one group and a member of another.
+- **Foreign keys are declared but not enforced.** SQLite does not enforce them unless it is told to, and switching them on would block removing a member who already has payments.
+- **No real money moves.** NextPay only keeps the records. Payments are recorded by the admin.
+- **Reminders appear only in the app** (no SMS or email), and only when a member opens their dashboard.
+- **A correction made after a payout can make the pot negative.** The report shows the real difference between what was saved and what was paid out.
+- **The 3-day deadline for a dispute is shown to the admin but not enforced.**
+- **English only.** French and Kirundi are planned for a future version.
+- **Reliability scores are calculated when the group page opens.** The `reliability_score` column in `memberships` is not used yet.
+
+## Author
+
+Emna Barezi, African Leadership University. Built for the Introduction to Software Engineering course.
